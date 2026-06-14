@@ -1,0 +1,39 @@
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Unity generated files
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity crash reports
+sysinfo.txt
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vs/
+.vscode/
+
+# Rider
+.idea/
+
+# Build output
+*.apk
+*.aab
+*.unitypackage
