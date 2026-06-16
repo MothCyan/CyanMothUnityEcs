@@ -14,6 +14,10 @@
 
 从使用层逐层下钻到底层的调用链见 [ECS_USAGE_LAYERED_FLOW.md](ECS_USAGE_LAYERED_FLOW.md)。
 
+从内存层到应用层的模块职责和依赖关系见 [ECS_ARCHITECTURE_RELATIONSHIP.md](ECS_ARCHITECTURE_RELATIONSHIP.md)。
+
+从易到难的学习顺序和练习建议见 [ECS_LEARNING_PATH.md](ECS_LEARNING_PATH.md)。
+
 当前脚本、类、字段和 API 的逐项说明见 [ECS_API_REFERENCE.md](ECS_API_REFERENCE.md)。
 
 主文档只保留 ECS 优化链路、创新方案和底层重构路线。

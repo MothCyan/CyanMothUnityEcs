@@ -881,6 +881,302 @@ swap-remove 后 moved entity 更新位置
 
 ## 三、测试脚本
 
+## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
+
+### `UnsafeUtil`
+
+unsafe 层工具类。
+
+#### 功能
+
+集中处理底层指针运算中最容易重复出错的操作：
+
+```text
+SizeOf
+Align
+IsAligned
+Copy
+Clear
+```
+
+#### API
+
+##### `int SizeOf<T>() where T : unmanaged`
+
+返回非托管结构体 `T` 的字节大小。
+
+后续用途：
+
+```text
+计算组件数组 stride
+计算 Chunk Header 大小
+计算 memcpy 字节数
+```
+
+##### `int Align(int value, int alignment)`
+
+把整数向上对齐到指定边界。
+
+示例：
+
+```text
+Align(65, 64) -> 128
+```
+
+##### `long Align(long value, int alignment)`
+
+`long` 版本的向上对齐，主要给指针地址计算使用。
+
+##### `IntPtr Align(IntPtr address, int alignment)`
+
+把地址向上对齐。
+
+后续 `ChunkAllocator` 会用它把原始 native memory 地址推到 64 字节边界。
+
+##### `bool IsAligned(IntPtr address, int alignment)`
+
+判断地址是否已经满足指定对齐。
+
+测试和 Debug 检查会使用它。
+
+##### `void Copy(void* source, void* destination, int byteCount)`
+
+复制一段原始内存。
+
+后续结构迁移时会使用：
+
+```text
+从旧 Chunk 拷贝共有组件
+到新 Chunk 对应 slot
+```
+
+##### `void Clear(void* destination, int byteCount)`
+
+把一段原始内存清零。
+
+当前 `ChunkAllocator` 用它清理新切出来的 Chunk Header。
+
+---
+
+## `Assets/Scripts/ECS/Storage/Chunk.cs`
+
+### `Chunk`
+
+固定大小数据块的 Header。
+
+```csharp
+internal unsafe struct Chunk
+```
+
+真正的内存布局是：
+
+```text
+Chunk Header
+Entity[]
+ComponentArray[0]
+ComponentArray[1]
+...
+```
+
+当前脚本只定义 Header，组件数组偏移会在后续 `ArchetypeLayout` 中实现。
+
+### 常量
+
+#### `public const int Size`
+
+Chunk 固定大小，当前为 `16 * 1024` 字节。
+
+#### `public const int Alignment`
+
+Chunk 起始地址对齐值，当前为 `64` 字节。
+
+### 字段
+
+#### `public int ArchetypeId`
+
+当前 Chunk 属于哪个 Archetype。
+
+#### `public int Count`
+
+当前 Chunk 已经使用了多少个实体 slot。
+
+#### `public int Capacity`
+
+当前 Chunk 最多能容纳多少个实体。
+
+容量不是固定写死的，而是由后续 `ArchetypeLayout` 根据组件大小计算。
+
+#### `public int Sequence`
+
+Chunk 分配序号。
+
+用途：
+
+```text
+调试
+稳定排序
+后续统计
+```
+
+#### `public int Flags`
+
+预留标记位。
+
+#### `public int Reserved`
+
+对齐和扩展预留字段。
+
+#### `public Chunk* Next`
+
+同 Archetype 下 Chunk 链表的下一个节点。
+
+#### `public Chunk* Prev`
+
+同 Archetype 下 Chunk 链表的上一个节点。
+
+#### `public Chunk* NextFree`
+
+空闲 Chunk 链表的下一个节点。
+
+注意：
+
+```text
+Next / Prev 服务 Archetype 的数据链表
+NextFree 服务 ChunkAllocator 或 Archetype 的空闲链表
+```
+
+#### `public int* ChangeVersions`
+
+后续 ChangeVersion 优化预留字段。
+
+第一阶段可以保持 `null`。
+
+### API
+
+#### `void Reset(int archetypeId, int capacity, int sequence)`
+
+重置 Chunk Header。
+
+调用时机：
+
+```text
+ChunkAllocator.Allocate
+ChunkAllocator.Free
+```
+
+---
+
+## `Assets/Scripts/ECS/Storage/ChunkAllocator.cs`
+
+### `ChunkAllocator`
+
+Chunk native memory 分配器。
+
+```csharp
+internal unsafe sealed class ChunkAllocator : IDisposable
+```
+
+### 功能
+
+一次申请一批 native memory，然后切成多个固定大小 Chunk。
+
+这样做是为了避免：
+
+```text
+每创建一个 Chunk 都调用一次系统分配
+释放 Chunk 时立刻归还系统导致抖动
+```
+
+### 字段
+
+#### `private const int DefaultChunksPerBlock`
+
+每次扩容默认申请多少个 Chunk。
+
+当前为 `64`。
+
+#### `private readonly int _chunksPerBlock`
+
+当前分配器实例每个 native block 包含多少个 Chunk。
+
+测试时可以传较小值，方便验证扩容行为。
+
+#### `private IntPtr[] _rawBlocks`
+
+保存每次 `Marshal.AllocHGlobal` 得到的原始地址。
+
+Dispose 时必须释放这些原始地址。
+
+#### `private int _blockCount`
+
+当前已经申请了多少个 native block。
+
+#### `private Chunk* _freeList`
+
+可复用 Chunk 链表。
+
+#### `private int _nextSequence`
+
+下一个分配出去的 Chunk 序号。
+
+#### `private bool _disposed`
+
+表示分配器是否已经释放。
+
+### 属性
+
+#### `public int BlockCount`
+
+当前已经申请的 native block 数量。
+
+#### `public int ChunkSize`
+
+返回 `Chunk.Size`。
+
+#### `public int Alignment`
+
+返回 `Chunk.Alignment`。
+
+### API
+
+#### `Chunk* Allocate(int archetypeId, int capacity)`
+
+从 free list 取一个 Chunk。
+
+如果 free list 为空，则先申请新的 native block。
+
+流程：
+
+```text
+检查参数
+如果没有空闲 Chunk -> AllocateBlock
+从 free list 弹出一个 Chunk
+Reset Header
+返回 Chunk*
+```
+
+#### `void Free(Chunk* chunk)`
+
+把 Chunk 放回 free list。
+
+当前不会立刻释放 native memory，而是留给后续复用。
+
+#### `void Dispose()`
+
+释放所有 native block。
+
+World 销毁时必须最终调用它，避免 native memory 泄漏。
+
+#### `private void AllocateBlock()`
+
+申请一整块 native memory，并切成多个 64 字节对齐的 Chunk。
+
+#### `private void ThrowIfDisposed()`
+
+防止释放后继续使用分配器。
+
+---
+
 ## `Assets/Scripts/ECS/Tests/ComponentMaskTests.cs`
 
 测试 `ComponentMask` 的位运算行为。
@@ -961,6 +1257,40 @@ swap-remove 后 moved entity 更新位置
 ### `Validate_ThrowsForStaleHandle`
 
 验证旧 Entity 句柄调用 `Validate` 会抛异常。
+
+---
+
+## `Assets/Scripts/ECS/Tests/ChunkAllocatorTests.cs`
+
+测试内存层工具和 Chunk 分配器。
+
+### `UnsafeUtil_Align_WorksForIntegersAndPointers`
+
+验证：
+
+- 整数对齐结果正确。
+- 指针地址对齐结果正确。
+- `IsAligned` 能判断地址是否满足对齐。
+
+### `Allocate_ReturnsAlignedChunkAndInitializesHeader`
+
+验证：
+
+- 分配出的 Chunk 地址满足 64 字节对齐。
+- Header 中的 `ArchetypeId`、`Count`、`Capacity`、`Sequence` 初始化正确。
+- 链表指针被清空。
+
+### `Free_ReusesChunkFromFreeList`
+
+验证释放后的 Chunk 会进入 free list，并且下一次分配可以复用同一块地址。
+
+### `Allocate_RequestsNewBlockWhenFreeListIsEmpty`
+
+验证 free list 不够用时，分配器会申请新的 native block。
+
+### `Allocate_ThrowsAfterDispose`
+
+验证 `Dispose` 后继续分配会抛出 `ObjectDisposedException`。
 
 ---
 
