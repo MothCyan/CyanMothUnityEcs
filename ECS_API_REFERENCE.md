@@ -1177,6 +1177,248 @@ World 销毁时必须最终调用它，避免 native memory 泄漏。
 
 ---
 
+## `Assets/Scripts/ECS/Storage/ArchetypeLayout.cs`
+
+### `ArchetypeLayout`
+
+描述一个 Archetype 的数据在 Chunk 内部如何排布。
+
+它不拥有真实内存，只保存计算结果。
+
+### 常量
+
+#### `public const int MissingOffset`
+
+表示某个组件没有真实数据区。
+
+当前主要用于 Tag 组件。
+
+### 字段
+
+#### `public readonly int ChunkSize`
+
+当前布局使用的 Chunk 总大小。
+
+#### `public readonly int HeaderSize`
+
+Chunk Header 占用的字节数，已经按 64 字节对齐。
+
+#### `public readonly int EntityOffset`
+
+`Entity[]` 在 Chunk 内的起始偏移。
+
+#### `public readonly int EntityStride`
+
+单个 `Entity` 占用的字节数。
+
+#### `public readonly int Capacity`
+
+该 Archetype 的一个 Chunk 最多能容纳多少个实体。
+
+不同组件组合会得到不同容量。
+
+#### `public readonly int UsedBytes`
+
+当前布局实际使用到的字节数。
+
+它必须小于等于 `Chunk.Size`。
+
+#### `public readonly int[] ComponentOffsets`
+
+每个组件数组在 Chunk 内的起始偏移。
+
+数组下标对应 `Archetype.Types` 的槽位，不是全局 TypeIndex。
+
+#### `public readonly int[] ComponentStrides`
+
+每个组件单个元素的大小。
+
+Tag 组件 stride 为 0。
+
+### API
+
+#### `static ArchetypeLayout Create(ComponentType[] types)`
+
+使用默认 Chunk 大小和 Header 大小创建布局。
+
+#### `static ArchetypeLayout Create(ComponentType[] types, int chunkSize, int headerSize)`
+
+使用指定 Chunk 参数创建布局。
+
+主要用于测试和后续自定义 Chunk 策略。
+
+#### `int GetComponentOffset(int typeSlot)`
+
+读取某个组件槽位的偏移。
+
+#### `int GetComponentStride(int typeSlot)`
+
+读取某个组件槽位的 stride。
+
+### 计算规则
+
+```text
+Header
+-> Entity[]
+-> ComponentArray[0]
+-> ComponentArray[1]
+-> ...
+```
+
+每个组件数组都会按该组件的 `Align` 对齐。
+
+如果初始容量计算后放不下，就逐步降低容量，直到布局能放进一个 Chunk。
+
+---
+
+## `Assets/Scripts/ECS/Storage/Archetype.cs`
+
+### `Archetype`
+
+表示一组完全相同的组件组合。
+
+例如：
+
+```text
+[Position, Velocity]
+[Position, Velocity, Health]
+```
+
+它是 Query、结构迁移和 Chunk 管理的核心单位。
+
+### 字段
+
+#### `public readonly int Id`
+
+Archetype 编号。
+
+#### `public readonly ComponentMask Mask`
+
+该 Archetype 拥有哪些组件。
+
+#### `public readonly ComponentType[] Types`
+
+组件类型数组。
+
+数组按 `ComponentType.Index` 排序。
+
+#### `public readonly ArchetypeLayout Layout`
+
+该组件组合对应的 Chunk 布局。
+
+#### `public readonly int[] AddEdges`
+
+添加某个组件后的目标 Archetype 缓存。
+
+当前先初始化为 -1，后续结构变更阶段会填充。
+
+#### `public readonly int[] RemoveEdges`
+
+移除某个组件后的目标 Archetype 缓存。
+
+当前先初始化为 -1。
+
+#### `public Chunk* FirstChunk`
+
+该 Archetype 的第一个 Chunk。
+
+#### `public Chunk* LastChunk`
+
+该 Archetype 的最后一个 Chunk。
+
+#### `public Chunk* FirstFreeChunk`
+
+该 Archetype 下还有空位的 Chunk 链表头。
+
+#### `public int Version`
+
+Archetype 内部版本号。
+
+后续可用于调试和缓存刷新。
+
+### API
+
+#### `bool Has(ComponentType type)`
+
+判断该 Archetype 是否包含某个组件。
+
+#### `int GetTypeSlot(int typeIndex)`
+
+根据全局 TypeIndex 找到组件在 `Types` 数组中的槽位。
+
+找不到返回 -1。
+
+#### `int GetComponentOffset(int typeIndex)`
+
+根据全局 TypeIndex 找组件数组偏移。
+
+#### `int GetComponentStride(int typeIndex)`
+
+根据全局 TypeIndex 找组件 stride。
+
+---
+
+## `Assets/Scripts/ECS/Storage/ArchetypeStore.cs`
+
+### `ArchetypeStore`
+
+管理所有 Archetype。
+
+它保证同一个组件组合只会创建一个 Archetype。
+
+### 字段
+
+#### `private readonly Dictionary<ComponentMask, int> _idsByMask`
+
+从组件组合 mask 映射到 ArchetypeId。
+
+#### `private readonly List<Archetype> _archetypes`
+
+保存所有已创建的 Archetype。
+
+### 属性
+
+#### `public int Count`
+
+当前 Archetype 数量。
+
+#### `public int Version`
+
+ArchetypeStore 版本号。
+
+每创建一个新 Archetype，就会增加一次。
+
+后续 QueryCache 会依赖它判断缓存是否过期。
+
+### API
+
+#### `Archetype GetOrCreate(params ComponentType[] types)`
+
+根据组件类型组合获取 Archetype。
+
+如果组合不存在则创建。
+
+执行流程：
+
+```text
+复制组件数组
+-> 按 TypeIndex 排序
+-> 检查重复组件
+-> 生成 ComponentMask
+-> 查 _idsByMask
+-> 不存在则创建 ArchetypeLayout 和 Archetype
+```
+
+#### `Archetype GetById(int id)`
+
+根据 ArchetypeId 获取 Archetype。
+
+#### `bool TryFind(ComponentMask mask, out Archetype archetype)`
+
+根据组件组合 mask 查找 Archetype。
+
+---
+
 ## `Assets/Scripts/ECS/Tests/ComponentMaskTests.cs`
 
 测试 `ComponentMask` 的位运算行为。
@@ -1291,6 +1533,64 @@ World 销毁时必须最终调用它，避免 native memory 泄漏。
 ### `Allocate_ThrowsAfterDispose`
 
 验证 `Dispose` 后继续分配会抛出 `ObjectDisposedException`。
+
+---
+
+## `Assets/Scripts/ECS/Tests/ArchetypeStoreTests.cs`
+
+测试 Archetype、ArchetypeLayout 和 ArchetypeStore 的基础行为。
+
+### 内部测试组件 `Position`
+
+测试用位置组件，占用 3 个 `float`。
+
+### 内部测试组件 `Velocity`
+
+测试用速度组件，占用 3 个 `float`。
+
+### 内部测试组件 `Health`
+
+测试用生命值组件，占用 1 个 `int`。
+
+### 内部测试组件 `TestTag`
+
+测试用 Tag 组件，没有字段。
+
+### `SetUp`
+
+每个测试前清空 `TypeRegistry`，避免 TypeIndex 在测试之间互相影响。
+
+### `GetOrCreate_SameTypesDifferentOrder_ReturnsSameArchetype`
+
+验证：
+
+- `[Position, Velocity]` 和 `[Velocity, Position]` 会得到同一个 Archetype。
+- `ArchetypeStore.Version` 只在新建 Archetype 时增加。
+- Archetype 内部组件类型按 TypeIndex 排序。
+
+### `ArchetypeLayout_CapacityFitsChunk`
+
+验证：
+
+- 计算出的容量大于 0。
+- 布局使用字节数不超过 `Chunk.Size`。
+- `Entity[]` 起始偏移满足对齐。
+
+### `ArchetypeLayout_ComponentOffsetsAreAligned`
+
+验证组件数组起始偏移满足各自的 `ComponentType.Align`。
+
+### `TagComponent_TakesNoDataSpace`
+
+验证 Tag 组件不占组件数据区：
+
+- offset 为 `MissingOffset`。
+- stride 为 0。
+- 加 Tag 不会降低 Chunk 容量。
+
+### `TryFind_ReturnsArchetypeByMask`
+
+验证可以通过 `ComponentMask` 找回已经创建的 Archetype。
 
 ---
 
