@@ -186,6 +186,7 @@ namespace CyanMothUnityEcs.Tests
                 world.Commands.Remove<Velocity>(entity);
 
                 Assert.AreEqual(1, world.Commands.Count);
+                Assert.AreEqual(0, world.Commands.PayloadBytes);
 
                 world.Playback();
 
@@ -205,6 +206,7 @@ namespace CyanMothUnityEcs.Tests
                 world.Commands.Destroy(entity);
 
                 Assert.AreEqual(1, world.Commands.Count);
+                Assert.AreEqual(0, world.Commands.PayloadBytes);
 
                 world.Playback();
 

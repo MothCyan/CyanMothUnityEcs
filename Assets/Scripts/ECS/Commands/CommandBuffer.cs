@@ -189,11 +189,23 @@ namespace CyanMothUnityEcs
             if ((uint)index >= _count)
                 throw new ArgumentOutOfRangeException(nameof(index), index, "命令索引超出范围。");
 
+            RewindPayloadIfLast(_commands[index]);
+
             int moveCount = _count - index - 1;
             if (moveCount > 0)
                 Array.Copy(_commands, index + 1, _commands, index, moveCount);
 
             _commands[--_count] = default;
+        }
+
+        private void RewindPayloadIfLast(Command command)
+        {
+            if (command.PayloadSize <= 0)
+                return;
+
+            int payloadEnd = command.PayloadOffset + command.PayloadSize;
+            if (payloadEnd == _payloadBytes)
+                _payloadBytes = command.PayloadOffset;
         }
 
         private void EnsurePayloadCapacity(int requiredBytes)

@@ -1131,6 +1131,14 @@ Add<T> 的组件数据以原始字节保存
 直接覆盖旧 payload 字节
 ```
 
+删除 pending 命令时，如果它的 payload 正好位于 payload 栈顶，会回退 `_payloadBytes`：
+
+```text
+Add 后 Remove 抵消
+Add 后 Destroy 吞掉
+最后一段 payload 可以直接回收
+```
+
 ### 字段
 
 #### `private const int DefaultCommandCapacity`
@@ -1270,6 +1278,20 @@ Tag 组件没有数据区，会返回 -1，不增加 `PayloadBytes`。
 #### `private void RemoveCommandAt(int index)`
 
 删除指定命令头，并把后面的命令前移。
+
+删除前会调用 `RewindPayloadIfLast` 尝试回收 payload 栈顶空间。
+
+#### `private void RewindPayloadIfLast(Command command)`
+
+如果被删除命令的 payload 正好是最后写入的一段，则回退 `_payloadBytes`。
+
+这是一种保守回收：
+
+```text
+不移动中间 payload
+不重写其他命令的 PayloadOffset
+只回收栈顶 payload
+```
 
 #### `private void EnsurePayloadCapacity(int requiredBytes)`
 
@@ -3839,9 +3861,13 @@ Playback 后实体拥有 Tag
 
 验证同实体同组件先 Add 再 Remove 时，会抵消 pending Add，并保留 Remove。
 
+同时验证被抵消 Add 如果位于 payload 栈顶，`PayloadBytes` 会回退。
+
 ### `Destroy_RemovesEarlierCommandsForSameEntity`
 
 验证 Destroy 会移除同实体之前所有未回放命令，只保留 Destroy。
+
+同时验证 Destroy 吞掉最后几条 Add 时，payload 栈顶空间会被回收。
 
 ---
 
