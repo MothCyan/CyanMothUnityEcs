@@ -111,5 +111,33 @@ namespace CyanMothUnityEcs.Tests
             Assert.IsTrue(found);
             Assert.AreSame(created, result);
         }
+
+        [Test]
+        public void ComponentLookup_ReturnsOffsetAndStrideByTypeIndex()
+        {
+            ComponentType position = TypeRegistry.Get<Position>();
+            ComponentType health = TypeRegistry.Get<Health>();
+            Archetype archetype = new ArchetypeStore().GetOrCreate(position, health);
+
+            int positionSlot = archetype.GetTypeSlot(position.Index);
+            int healthSlot = archetype.GetTypeSlot(health.Index);
+
+            Assert.AreEqual(archetype.Layout.GetComponentOffset(positionSlot), archetype.GetComponentOffset(position.Index));
+            Assert.AreEqual(archetype.Layout.GetComponentStride(positionSlot), archetype.GetComponentStride(position.Index));
+            Assert.AreEqual(archetype.Layout.GetComponentOffset(healthSlot), archetype.GetComponentOffset(health.Index));
+            Assert.AreEqual(archetype.Layout.GetComponentStride(healthSlot), archetype.GetComponentStride(health.Index));
+        }
+
+        [Test]
+        public void ComponentLookup_MissingType_Throws()
+        {
+            ComponentType position = TypeRegistry.Get<Position>();
+            ComponentType velocity = TypeRegistry.Get<Velocity>();
+            Archetype archetype = new ArchetypeStore().GetOrCreate(position);
+
+            Assert.AreEqual(ArchetypeLayout.MissingOffset, archetype.GetTypeSlot(velocity.Index));
+            Assert.Throws<System.InvalidOperationException>(() => archetype.GetComponentOffset(velocity.Index));
+            Assert.Throws<System.InvalidOperationException>(() => archetype.GetComponentStride(velocity.Index));
+        }
     }
 }

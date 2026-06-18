@@ -3321,6 +3321,32 @@ Archetype 编号。
 
 当前先初始化为 -1。
 
+#### `private readonly int[] _typeSlots`
+
+TypeIndex 到 `Types` 槽位的直接查找表。
+
+用途：
+
+```text
+GetTypeSlot 不再线性扫描 Types
+```
+
+#### `private readonly int[] _componentOffsets`
+
+TypeIndex 到 Chunk 内组件数组 offset 的直接查找表。
+
+用途：
+
+```text
+GetComponentOffset 直接 O(1) 返回
+QueryCache 刷新时更快计算 offset
+Get/Set/结构迁移不再重复查 slot
+```
+
+#### `private readonly int[] _componentStrides`
+
+TypeIndex 到组件 stride 的直接查找表。
+
 #### `public Chunk* FirstChunk`
 
 该 Archetype 的第一个 Chunk。
@@ -3355,9 +3381,25 @@ Archetype 内部版本号。
 
 根据全局 TypeIndex 找组件数组偏移。
 
+内部直接读取 `_componentOffsets[typeIndex]`。
+
 #### `int GetComponentStride(int typeIndex)`
 
 根据全局 TypeIndex 找组件 stride。
+
+内部直接读取 `_componentStrides[typeIndex]`。
+
+#### `private void BuildComponentLookup()`
+
+构造 `_typeSlots`、`_componentOffsets`、`_componentStrides`。
+
+创建 Archetype 时执行一次。
+
+#### `private void ValidateContains(int typeIndex)`
+
+确认该 Archetype 包含指定 TypeIndex。
+
+缺失时抛出异常。
 
 ---
 
@@ -3612,6 +3654,28 @@ Remove<T>
 ### `TryFind_ReturnsArchetypeByMask`
 
 验证可以通过 `ComponentMask` 找回已经创建的 Archetype。
+
+### `ComponentLookup_ReturnsOffsetAndStrideByTypeIndex`
+
+验证 Archetype 可以通过 TypeIndex 直接查到：
+
+```text
+Types 槽位
+组件 offset
+组件 stride
+```
+
+并且结果和 `ArchetypeLayout` 中按 slot 查询的结果一致。
+
+### `ComponentLookup_MissingType_Throws`
+
+验证缺失组件：
+
+```text
+GetTypeSlot 返回 MissingOffset
+GetComponentOffset 抛异常
+GetComponentStride 抛异常
+```
 
 ---
 
@@ -4110,7 +4174,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第四项：
+当前已经实现到阶段 H 的 Advanced Optimization 第六项：
 
 ```text
 Component 类型身份
@@ -4146,6 +4210,8 @@ Query offset 缓存
 CreateMany Chunk 批写优化
 CommandBuffer raw payload
 CommandBuffer 同实体命令合并
+CommandBuffer payload 栈顶回收
+Archetype TypeIndex 查表
 ```
 
 还没有实现：
@@ -4270,6 +4336,21 @@ Remove<T>
 Destroy
   -> 删除同实体所有 pending 命令
   -> 只追加 Destroy
+```
+
+Archetype TypeIndex 查表链路：
+
+```text
+Archetype 创建
+遍历 Types
+构建 _typeSlots[typeIndex]
+构建 _componentOffsets[typeIndex]
+构建 _componentStrides[typeIndex]
+
+GetComponentOffset(typeIndex)
+GetComponentStride(typeIndex)
+直接 O(1) 查表
+避免每次线性扫描 Types
 ```
 
 下一步建议继续阶段 H：做 `Enableable Component` 或 `ChangeVersion`。前者能减少 Add/Remove 迁移，后者能让系统只扫变化过的 Chunk。

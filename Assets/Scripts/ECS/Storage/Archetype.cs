@@ -4,7 +4,7 @@ namespace CyanMothUnityEcs
 {
     /// <summary>
     /// Archetype 表示一组完全相同的组件组合。
-    /// 它保存组件列表、组件掩码、Chunk 布局以及后续结构变更需要的边缓存。
+    /// 它保存组件列表、组件掩码、Chunk 布局，以及结构变更需要的边缓存。
     /// </summary>
     internal unsafe sealed class Archetype
     {
@@ -14,6 +14,10 @@ namespace CyanMothUnityEcs
         public readonly ArchetypeLayout Layout;
         public readonly int[] AddEdges;
         public readonly int[] RemoveEdges;
+
+        private readonly int[] _typeSlots;
+        private readonly int[] _componentOffsets;
+        private readonly int[] _componentStrides;
 
         public Chunk* FirstChunk;
         public Chunk* LastChunk;
@@ -31,6 +35,10 @@ namespace CyanMothUnityEcs
             Layout = layout;
             AddEdges = CreateEmptyEdges();
             RemoveEdges = CreateEmptyEdges();
+            _typeSlots = CreateFilledArray(ArchetypeLayout.MissingOffset);
+            _componentOffsets = CreateFilledArray(ArchetypeLayout.MissingOffset);
+            _componentStrides = CreateFilledArray(0);
+            BuildComponentLookup();
         }
 
         public bool Has(ComponentType type)
@@ -40,39 +48,57 @@ namespace CyanMothUnityEcs
 
         public int GetTypeSlot(int typeIndex)
         {
-            for (int i = 0; i < Types.Length; i++)
-            {
-                if (Types[i].Index == typeIndex)
-                    return i;
-            }
-
-            return -1;
+            ValidateTypeIndex(typeIndex);
+            return _typeSlots[typeIndex];
         }
 
         public int GetComponentOffset(int typeIndex)
         {
-            int slot = GetTypeSlot(typeIndex);
-            if (slot < 0)
-                throw new InvalidOperationException($"Archetype {Id} 不包含组件 TypeIndex {typeIndex}。");
-
-            return Layout.GetComponentOffset(slot);
+            ValidateContains(typeIndex);
+            return _componentOffsets[typeIndex];
         }
 
         public int GetComponentStride(int typeIndex)
         {
-            int slot = GetTypeSlot(typeIndex);
-            if (slot < 0)
-                throw new InvalidOperationException($"Archetype {Id} 不包含组件 TypeIndex {typeIndex}。");
+            ValidateContains(typeIndex);
+            return _componentStrides[typeIndex];
+        }
 
-            return Layout.GetComponentStride(slot);
+        private void BuildComponentLookup()
+        {
+            for (int slot = 0; slot < Types.Length; slot++)
+            {
+                ComponentType type = Types[slot];
+                _typeSlots[type.Index] = slot;
+                _componentOffsets[type.Index] = Layout.GetComponentOffset(slot);
+                _componentStrides[type.Index] = Layout.GetComponentStride(slot);
+            }
+        }
+
+        private void ValidateContains(int typeIndex)
+        {
+            ValidateTypeIndex(typeIndex);
+            if (_typeSlots[typeIndex] < 0)
+                throw new InvalidOperationException($"Archetype {Id} 不包含组件 TypeIndex {typeIndex}。");
+        }
+
+        private static void ValidateTypeIndex(int typeIndex)
+        {
+            if ((uint)typeIndex >= TypeRegistry.MaxComponentTypes)
+                throw new ArgumentOutOfRangeException(nameof(typeIndex), typeIndex, "TypeIndex 超出范围。");
         }
 
         private static int[] CreateEmptyEdges()
         {
-            int[] edges = new int[TypeRegistry.MaxComponentTypes];
-            for (int i = 0; i < edges.Length; i++)
-                edges[i] = -1;
-            return edges;
+            return CreateFilledArray(-1);
+        }
+
+        private static int[] CreateFilledArray(int value)
+        {
+            int[] values = new int[TypeRegistry.MaxComponentTypes];
+            for (int i = 0; i < values.Length; i++)
+                values[i] = value;
+            return values;
         }
     }
 }
