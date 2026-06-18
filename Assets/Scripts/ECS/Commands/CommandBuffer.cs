@@ -32,18 +32,17 @@ namespace CyanMothUnityEcs
             where T : unmanaged, IComponentData
         {
             ComponentType type = TypeRegistry.Get<T>();
-            int payloadOffset = WritePayload(type, &component);
             int payloadSize = type.IsTag ? 0 : type.Size;
-            Command command = new Command(CommandKind.Add, entity, type.Index, payloadOffset, payloadSize);
-
             int existingIndex = FindLastCommand(entity, type.Index);
             if (existingIndex >= 0 && _commands[existingIndex].Kind == CommandKind.Add)
             {
-                _commands[existingIndex] = command;
+                int payloadOffset = RewritePayload(_commands[existingIndex], type, &component);
+                _commands[existingIndex] = new Command(CommandKind.Add, entity, type.Index, payloadOffset, payloadSize);
                 return;
             }
 
-            Append(command);
+            int newPayloadOffset = WritePayload(type, &component);
+            Append(new Command(CommandKind.Add, entity, type.Index, newPayloadOffset, payloadSize));
         }
 
         public void Remove<T>(Entity entity)
@@ -135,6 +134,19 @@ namespace CyanMothUnityEcs
 
             _payloadBytes += type.Size;
             return payloadOffset;
+        }
+
+        private int RewritePayload(Command command, ComponentType type, void* data)
+        {
+            if (type.IsTag)
+                return -1;
+
+            fixed (byte* payloadBase = _payload)
+            {
+                UnsafeUtil.Copy(data, payloadBase + command.PayloadOffset, type.Size);
+            }
+
+            return command.PayloadOffset;
         }
 
         private void Append(Command command)

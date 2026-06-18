@@ -1124,6 +1124,13 @@ Add<T> 的组件数据以原始字节保存
 
 这能减少 Playback 时的重复 Archetype 迁移。
 
+同组件重复 Add 时会复用旧 payload 区域：
+
+```text
+不增加 PayloadBytes
+直接覆盖旧 payload 字节
+```
+
 ### 字段
 
 #### `private const int DefaultCommandCapacity`
@@ -1188,8 +1195,9 @@ PayloadSize
 
 ```text
 TypeRegistry.Get<T>
-WritePayload
-Append CommandKind.Add
+FindLastCommand
+如果已有 Add -> RewritePayload 并替换命令头
+否则 WritePayload 并 Append CommandKind.Add
 ```
 
 实际结构变更不会立即发生，要等 `Playback`。
@@ -1234,6 +1242,12 @@ Destroy -> world.Destroy
 把 Add 组件数据写入 `_payload`。
 
 Tag 组件没有数据区，会返回 -1，不增加 `PayloadBytes`。
+
+#### `private int RewritePayload(Command command, ComponentType type, void* data)`
+
+覆盖已有 Add 命令的 payload。
+
+用于重复 Add 合并时复用旧 payload 区域。
 
 #### `private void Append(Command command)`
 
@@ -3814,6 +3828,8 @@ Playback 后实体拥有 Tag
 ### `AddSameComponent_KeepsOnlyLastCommand`
 
 验证同实体同组件连续 Add 时，只保留最后一次 Add。
+
+同时验证重复 Add 会复用旧 payload，`PayloadBytes` 不继续增长。
 
 ### `RemoveSameComponent_KeepsSingleCommand`
 

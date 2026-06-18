@@ -145,9 +145,11 @@ namespace CyanMothUnityEcs.Tests
                 Entity entity = world.Create(new Health { Value = 1 });
 
                 world.Commands.Add(entity, new Health { Value = 2 });
+                int firstPayloadBytes = world.Commands.PayloadBytes;
                 world.Commands.Add(entity, new Health { Value = 3 });
 
                 Assert.AreEqual(1, world.Commands.Count);
+                Assert.AreEqual(firstPayloadBytes, world.Commands.PayloadBytes);
 
                 world.Playback();
 
