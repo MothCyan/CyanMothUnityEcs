@@ -10,11 +10,19 @@ namespace CyanMothUnityEcs
             ThrowIfDisposed();
 
             ComponentType addedType = TypeRegistry.Get<T>();
+            AddRaw(entity, addedType, &component);
+        }
+
+        internal void AddRaw(Entity entity, ComponentType addedType, void* componentData)
+        {
+            ThrowIfDisposed();
+
             Chunk* sourceChunk = GetEntityChunk(entity, out int sourceSlot, out Archetype sourceArchetype);
 
             if (sourceArchetype.Has(addedType))
             {
-                Set(entity, component);
+                if (componentData != null && !addedType.IsTag)
+                    WriteExistingRawComponent(entity, addedType, componentData);
                 return;
             }
 
@@ -31,7 +39,7 @@ namespace CyanMothUnityEcs
                 targetArchetype.RemoveEdges[addedType.Index] = sourceArchetype.Id;
             }
 
-            MoveEntityToArchetype(entity, sourceArchetype, sourceChunk, sourceSlot, targetArchetype, addedType, &component);
+            MoveEntityToArchetype(entity, sourceArchetype, sourceChunk, sourceSlot, targetArchetype, addedType, componentData);
         }
 
         public void Remove<T>(Entity entity)
@@ -40,6 +48,13 @@ namespace CyanMothUnityEcs
             ThrowIfDisposed();
 
             ComponentType removedType = TypeRegistry.Get<T>();
+            RemoveRaw(entity, removedType);
+        }
+
+        internal void RemoveRaw(Entity entity, ComponentType removedType)
+        {
+            ThrowIfDisposed();
+
             Chunk* sourceChunk = GetEntityChunk(entity, out int sourceSlot, out Archetype sourceArchetype);
 
             if (!sourceArchetype.Has(removedType))
@@ -140,6 +155,12 @@ namespace CyanMothUnityEcs
             int stride = archetype.GetComponentStride(type.Index);
             byte* target = (byte*)chunk + offset + stride * slot;
             UnsafeUtil.Copy(data, target, stride);
+        }
+
+        private void WriteExistingRawComponent(Entity entity, ComponentType type, void* data)
+        {
+            Chunk* chunk = GetEntityChunk(entity, out int slot, out Archetype archetype);
+            WriteRawComponent(chunk, archetype, slot, type, data);
         }
 
         private void RecycleSourceChunkAfterMigration(Archetype archetype, Chunk* chunk, bool wasFull)

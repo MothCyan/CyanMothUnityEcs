@@ -4,40 +4,48 @@ namespace CyanMothUnityEcs
 {
     /// <summary>
     /// 延迟结构变更命令缓冲。
-    /// 系统或 Query 遍历期间可以先记录命令，之后由 World.Playback 在安全点统一回放。
+    /// 命令头和组件 payload 分离存储，避免每条命令分配委托闭包。
     /// </summary>
-    public sealed class CommandBuffer
+    public unsafe sealed class CommandBuffer
     {
-        private const int DefaultCapacity = 64;
+        private const int DefaultCommandCapacity = 64;
+        private const int DefaultPayloadCapacity = 1024;
 
         private Command[] _commands;
+        private byte[] _payload;
         private int _count;
+        private int _payloadBytes;
 
-        public CommandBuffer(int initialCapacity = DefaultCapacity)
+        public CommandBuffer(int initialCapacity = DefaultCommandCapacity)
         {
             if (initialCapacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(initialCapacity), initialCapacity, "命令缓冲初始容量必须大于 0。");
 
             _commands = new Command[initialCapacity];
+            _payload = new byte[DefaultPayloadCapacity];
         }
 
         public int Count => _count;
+        public int PayloadBytes => _payloadBytes;
 
         public void Add<T>(Entity entity, T component)
             where T : unmanaged, IComponentData
         {
-            Append(new Command(CommandKind.Add, world => world.Add(entity, component)));
+            ComponentType type = TypeRegistry.Get<T>();
+            int payloadOffset = WritePayload(type, &component);
+            Append(new Command(CommandKind.Add, entity, type.Index, payloadOffset, type.Size));
         }
 
         public void Remove<T>(Entity entity)
             where T : unmanaged, IComponentData
         {
-            Append(new Command(CommandKind.Remove, world => world.Remove<T>(entity)));
+            ComponentType type = TypeRegistry.Get<T>();
+            Append(new Command(CommandKind.Remove, entity, type.Index, payloadOffset: -1, payloadSize: 0));
         }
 
         public void Destroy(Entity entity)
         {
-            Append(new Command(CommandKind.Destroy, world => world.Destroy(entity)));
+            Append(new Command(CommandKind.Destroy, entity, componentTypeIndex: -1, payloadOffset: -1, payloadSize: 0));
         }
 
         public void Playback(World world)
@@ -45,20 +53,66 @@ namespace CyanMothUnityEcs
             if (world == null)
                 throw new ArgumentNullException(nameof(world));
 
-            for (int i = 0; i < _count; i++)
+            fixed (byte* payloadBase = _payload)
             {
-                Command command = _commands[i];
-                command.Execute(world);
-                _commands[i] = default;
+                for (int i = 0; i < _count; i++)
+                {
+                    Command command = _commands[i];
+                    Execute(world, command, payloadBase);
+                    _commands[i] = default;
+                }
             }
 
             _count = 0;
+            _payloadBytes = 0;
         }
 
         public void Clear()
         {
             Array.Clear(_commands, 0, _count);
             _count = 0;
+            _payloadBytes = 0;
+        }
+
+        private static void Execute(World world, Command command, byte* payloadBase)
+        {
+            switch (command.Kind)
+            {
+                case CommandKind.Add:
+                    ComponentType addType = TypeRegistry.GetByIndex(command.ComponentTypeIndex);
+                    void* data = command.PayloadSize == 0 ? null : payloadBase + command.PayloadOffset;
+                    world.AddRaw(command.Entity, addType, data);
+                    break;
+
+                case CommandKind.Remove:
+                    ComponentType removeType = TypeRegistry.GetByIndex(command.ComponentTypeIndex);
+                    world.RemoveRaw(command.Entity, removeType);
+                    break;
+
+                case CommandKind.Destroy:
+                    world.Destroy(command.Entity);
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"未知命令类型：{command.Kind}。");
+            }
+        }
+
+        private int WritePayload(ComponentType type, void* data)
+        {
+            if (type.IsTag)
+                return -1;
+
+            int payloadOffset = _payloadBytes;
+            EnsurePayloadCapacity(_payloadBytes + type.Size);
+
+            fixed (byte* payloadBase = _payload)
+            {
+                UnsafeUtil.Copy(data, payloadBase + payloadOffset, type.Size);
+            }
+
+            _payloadBytes += type.Size;
+            return payloadOffset;
         }
 
         private void Append(Command command)
@@ -69,25 +123,38 @@ namespace CyanMothUnityEcs
             _commands[_count++] = command;
         }
 
+        private void EnsurePayloadCapacity(int requiredBytes)
+        {
+            if (requiredBytes <= _payload.Length)
+                return;
+
+            int newCapacity = _payload.Length;
+            while (newCapacity < requiredBytes)
+                newCapacity *= 2;
+
+            Array.Resize(ref _payload, newCapacity);
+        }
+
         private readonly struct Command
         {
-            private readonly CommandKind _kind;
-            private readonly Action<World> _execute;
+            public readonly CommandKind Kind;
+            public readonly Entity Entity;
+            public readonly int ComponentTypeIndex;
+            public readonly int PayloadOffset;
+            public readonly int PayloadSize;
 
-            public Command(CommandKind kind, Action<World> execute)
+            public Command(CommandKind kind, Entity entity, int componentTypeIndex, int payloadOffset, int payloadSize)
             {
-                _kind = kind;
-                _execute = execute ?? throw new ArgumentNullException(nameof(execute));
-            }
-
-            public void Execute(World world)
-            {
-                _execute(world);
+                Kind = kind;
+                Entity = entity;
+                ComponentTypeIndex = componentTypeIndex;
+                PayloadOffset = payloadOffset;
+                PayloadSize = payloadSize;
             }
 
             public override string ToString()
             {
-                return _kind.ToString();
+                return $"{Kind} {Entity} Type={ComponentTypeIndex} Payload={PayloadOffset}:{PayloadSize}";
             }
         }
     }

@@ -21,6 +21,10 @@ namespace CyanMothUnityEcs.Tests
             public int Value;
         }
 
+        private struct TestTag : IComponentData
+        {
+        }
+
         [SetUp]
         public void SetUp()
         {
@@ -37,12 +41,14 @@ namespace CyanMothUnityEcs.Tests
                 world.Commands.Add(entity, new Velocity { X = 2 });
 
                 Assert.IsFalse(world.Has<Velocity>(entity));
+                Assert.Greater(world.Commands.PayloadBytes, 0);
 
                 world.Playback();
 
                 Assert.IsTrue(world.Has<Velocity>(entity));
                 Assert.AreEqual(2, world.Get<Velocity>(entity).X);
                 Assert.AreEqual(0, world.Commands.Count);
+                Assert.AreEqual(0, world.Commands.PayloadBytes);
             }
         }
 
@@ -109,6 +115,25 @@ namespace CyanMothUnityEcs.Tests
                 world.Playback();
 
                 Assert.IsFalse(world.Has<Velocity>(entity));
+                Assert.AreEqual(0, world.Commands.PayloadBytes);
+            }
+        }
+
+        [Test]
+        public void AddTag_DoesNotWritePayloadBytes()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 });
+
+                world.Commands.Add(entity, new TestTag());
+
+                Assert.AreEqual(1, world.Commands.Count);
+                Assert.AreEqual(0, world.Commands.PayloadBytes);
+
+                world.Playback();
+
+                Assert.IsTrue(world.Has<TestTag>(entity));
             }
         }
     }

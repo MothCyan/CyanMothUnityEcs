@@ -1085,88 +1085,158 @@ Destroy
 
 ### `CommandBuffer`
 
-延迟结构变更命令缓冲。
+???????????
 
 ```csharp
-public sealed class CommandBuffer
+public unsafe sealed class CommandBuffer
 ```
 
-### 当前实现说明
+### ??????
 
-第一版使用 typed delegate 保存命令：
+??????? typed delegate ??????? raw ?????
+
+????????
 
 ```text
-Command
--> CommandKind
--> Action<World>
+Command[]????????
+byte[] payload?Add ?????????
 ```
 
-这比最终的原始字节命令缓冲更简单，适合先验证：
+???????
 
 ```text
-命令记录
-Playback 顺序
-World 接入
-结构变更安全点
+???????? Action<World> ??
+???? component ?????
+Playback ???????????
+Add<T> ????????????
 ```
 
-后续性能阶段会替换成更接近设计文档的二进制命令格式。
+### ??
 
-### 字段
+#### `private const int DefaultCommandCapacity`
 
-#### `private const int DefaultCapacity`
+??????????? 64?
 
-默认命令容量，当前为 64。
+#### `private const int DefaultPayloadCapacity`
+
+?? payload ???????? 1024?
 
 #### `private Command[] _commands`
 
-命令数组。
+??????
+
+????????
+
+```text
+Kind
+Entity
+ComponentTypeIndex
+PayloadOffset
+PayloadSize
+```
+
+#### `private byte[] _payload`
+
+?????????
+
+?? `Add<T>` ????? Tag ???? payload?
 
 #### `private int _count`
 
-当前已经记录的命令数量。
+????????????
 
-### 属性
+#### `private int _payloadBytes`
+
+?? payload ???????
+
+### ??
 
 #### `public int Count`
 
-当前命令数量。
+???????
+
+#### `public int PayloadBytes`
+
+?? payload ???????
+
+??????????????????
 
 ### API
 
-#### `CommandBuffer(int initialCapacity = DefaultCapacity)`
+#### `CommandBuffer(int initialCapacity = DefaultCommandCapacity)`
 
-创建命令缓冲。
+???????
 
 #### `void Add<T>(Entity entity, T component)`
 
-记录添加组件命令。
+?????????
 
-实际结构变更不会立即发生，要等 `Playback`。
+???
+
+```text
+TypeRegistry.Get<T>
+WritePayload
+Append CommandKind.Add
+```
+
+??????????????? `Playback`?
 
 #### `void Remove<T>(Entity entity)`
 
-记录移除组件命令。
+?????????
+
+Remove ??? payload?????? TypeIndex?
 
 #### `void Destroy(Entity entity)`
 
-记录销毁实体命令。
+?????????
+
+Destroy ????? TypeIndex????? payload?
 
 #### `void Playback(World world)`
 
-按记录顺序回放所有命令。
+????????????
 
-回放完成后自动清空命令。
+???
+
+```text
+fixed payload byte[]
+?? Command[]
+Add -> world.AddRaw
+Remove -> world.RemoveRaw
+Destroy -> world.Destroy
+?? count ? payloadBytes
+```
 
 #### `void Clear()`
 
-清空命令，不执行。
+?????????
+
+#### `private static void Execute(World world, Command command, byte* payloadBase)`
+
+?????????
+
+#### `private int WritePayload(ComponentType type, void* data)`
+
+? Add ?????? `_payload`?
+
+Tag ??????????? -1???? `PayloadBytes`?
 
 #### `private void Append(Command command)`
 
-把命令追加到数组。
+?????????
 
-容量不够时扩容。
+????????
+
+#### `private void EnsurePayloadCapacity(int requiredBytes)`
+
+?? payload ????????????
+
+#### `private readonly struct Command`
+
+??????
+
+???????????????????????
 
 ---
 
@@ -1450,11 +1520,13 @@ Tag 组件没有数据区，因此 Set Tag 会直接返回。
 
 ```text
 Add<T>
+AddRaw
 Remove<T>
+RemoveRaw
 Destroy
 ```
 
-CommandBuffer 会在后续阶段接入。
+CommandBuffer.Playback 会通过 `AddRaw` 和 `RemoveRaw` 回放结构变更。
 
 ### API
 
@@ -1480,6 +1552,24 @@ source Archetype
 -> 从源 Chunk swap-remove
 ```
 
+#### `internal void AddRaw(Entity entity, ComponentType addedType, void* componentData)`
+
+添加组件的 raw 入口。
+
+用途：
+
+```text
+CommandBuffer raw payload 回放
+避免 Playback 时重新进入泛型委托路径
+```
+
+如果实体已经拥有该组件：
+
+```text
+普通组件 -> WriteExistingRawComponent
+Tag 组件 -> 直接返回
+```
+
 #### `void Remove<T>(Entity entity)`
 
 从实体移除组件。
@@ -1495,6 +1585,16 @@ source Archetype
 -> 移动实体到目标 Chunk
 -> 拷贝剩余共有组件
 -> 从源 Chunk swap-remove
+```
+
+#### `internal void RemoveRaw(Entity entity, ComponentType removedType)`
+
+移除组件的 raw 入口。
+
+用途：
+
+```text
+CommandBuffer 根据 ComponentTypeIndex 回放 Remove
 ```
 
 #### `void Destroy(Entity entity)`
@@ -1538,7 +1638,13 @@ Tag 组件会跳过，因为它没有数据区。
 
 写入新增组件的原始字节。
 
-当前由 `Add<T>` 调用。
+当前由 `AddRaw` 和迁移流程调用。
+
+#### `private void WriteExistingRawComponent(...)`
+
+实体已经拥有某组件时，直接覆盖当前 Chunk 中已有组件数据。
+
+这用于 `CommandBuffer.Add<T>` 回放到已有组件时保持和 `World.Add<T>` 一样的“退化为 Set”语义。
 
 #### `private void RecycleSourceChunkAfterMigration(...)`
 
@@ -3513,6 +3619,7 @@ Remove<T>
 Position
 Velocity
 Health
+TestTag
 ```
 
 ### `CreateMany_OneComponent_WritesAllEntities`
@@ -3662,6 +3769,18 @@ Health
 ### `Clear_DropsRecordedCommands`
 
 验证 `Clear` 会丢弃命令，之后 Playback 不会执行被清掉的命令。
+
+同时验证 payload 字节数会被清零。
+
+### `AddTag_DoesNotWritePayloadBytes`
+
+验证 Tag 组件命令不写 payload：
+
+```text
+CommandCount 增加
+PayloadBytes 保持 0
+Playback 后实体拥有 Tag
+```
 
 ---
 
@@ -3904,7 +4023,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第二项：
+当前已经实现到阶段 H 的 Advanced Optimization 第三项：
 
 ```text
 Component 类型身份
@@ -3938,6 +4057,7 @@ QuerySystem<T1,T2,T3>
 QueryArchetypeMatch
 Query offset 缓存
 CreateMany Chunk 批写优化
+CommandBuffer raw payload
 ```
 
 还没有实现：
@@ -3950,7 +4070,8 @@ Debug Window 可视化面板
 更细的系统耗时统计
 ArchetypePrefab
 更完整的便捷 Command API
-CommandBuffer 命令合并
+CommandBuffer 同实体命令合并
+CommandBuffer 回放排序优化
 Enableable Component
 ChangeVersion 过滤
 Jobs/Burst
@@ -4033,4 +4154,18 @@ while 还有数据未写完
   -> Chunk 写满则移出 free list
 ```
 
-下一步建议继续阶段 H：优先做 `CommandBuffer` 命令合并或更底层的原始命令缓冲，减少结构变更回放时的委托调用和重复迁移。
+CommandBuffer raw payload 链路：
+
+```text
+Commands.Add<T>
+TypeRegistry.Get<T>
+组件字节写入 payload byte[]
+Command[] 写入命令头
+Playback fixed payload
+Add -> World.AddRaw
+Remove -> World.RemoveRaw
+Destroy -> World.Destroy
+清空命令数和 payload 字节数
+```
+
+下一步建议继续阶段 H：做 `CommandBuffer` 同实体命令合并，减少同一实体连续 Add/Remove/Destroy 造成的重复 Archetype 迁移。
