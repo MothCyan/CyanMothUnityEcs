@@ -11,6 +11,7 @@ namespace CyanMothUnityEcs
         private readonly EntityStore _entities;
         private readonly ArchetypeStore _archetypes;
         private readonly ChunkAllocator _chunks;
+        private readonly CommandBuffer _commands;
         private bool _disposed;
 
         public World()
@@ -18,10 +19,12 @@ namespace CyanMothUnityEcs
             _entities = new EntityStore();
             _archetypes = new ArchetypeStore();
             _chunks = new ChunkAllocator();
+            _commands = new CommandBuffer();
         }
 
         public int CreatedEntityCapacity => _entities.CreatedCapacity;
         public int ArchetypeCount => _archetypes.Count;
+        public CommandBuffer Commands => _commands;
 
         public bool IsAlive(Entity entity)
         {
@@ -34,8 +37,15 @@ namespace CyanMothUnityEcs
             if (_disposed)
                 return;
 
+            _commands.Clear();
             _chunks.Dispose();
             _disposed = true;
+        }
+
+        public void Playback()
+        {
+            ThrowIfDisposed();
+            _commands.Playback(this);
         }
 
         private void ThrowIfDisposed()

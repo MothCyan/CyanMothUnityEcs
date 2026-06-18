@@ -944,6 +944,17 @@ Chunk native memory 分配器。
 World.Dispose 时释放 native memory
 ```
 
+#### `private readonly CommandBuffer _commands`
+
+延迟结构变更命令缓冲。
+
+用途：
+
+```text
+记录 Add / Remove / Destroy
+在 World.Playback 安全点统一回放
+```
+
 #### `private bool _disposed`
 
 标记 World 是否已经释放。
@@ -959,6 +970,17 @@ World.Dispose 时释放 native memory
 #### `public int ArchetypeCount`
 
 返回当前已经创建的 Archetype 数量。
+
+#### `public CommandBuffer Commands`
+
+返回 World 持有的命令缓冲。
+
+用户可以写：
+
+```csharp
+world.Commands.Add(entity, component);
+world.Commands.Destroy(entity);
+```
 
 ### API
 
@@ -983,12 +1005,126 @@ ChunkAllocator
 当前主要调用：
 
 ```text
+CommandBuffer.Clear
 ChunkAllocator.Dispose()
 ```
+
+#### `void Playback()`
+
+回放 `Commands` 中记录的所有命令。
+
+后续 `SystemPipeline` 会在每个系统后自动调用它。
 
 #### `private void ThrowIfDisposed()`
 
 防止释放后的 World 继续被使用。
+
+---
+
+## `Assets/Scripts/ECS/Commands/CommandKind.cs`
+
+### `CommandKind`
+
+CommandBuffer 中记录的命令类型。
+
+当前支持：
+
+```text
+Add
+Remove
+Destroy
+```
+
+第一版没有实现 `Create` 和 `Set` 命令。
+
+---
+
+## `Assets/Scripts/ECS/Commands/CommandBuffer.cs`
+
+### `CommandBuffer`
+
+延迟结构变更命令缓冲。
+
+```csharp
+public sealed class CommandBuffer
+```
+
+### 当前实现说明
+
+第一版使用 typed delegate 保存命令：
+
+```text
+Command
+-> CommandKind
+-> Action<World>
+```
+
+这比最终的原始字节命令缓冲更简单，适合先验证：
+
+```text
+命令记录
+Playback 顺序
+World 接入
+结构变更安全点
+```
+
+后续性能阶段会替换成更接近设计文档的二进制命令格式。
+
+### 字段
+
+#### `private const int DefaultCapacity`
+
+默认命令容量，当前为 64。
+
+#### `private Command[] _commands`
+
+命令数组。
+
+#### `private int _count`
+
+当前已经记录的命令数量。
+
+### 属性
+
+#### `public int Count`
+
+当前命令数量。
+
+### API
+
+#### `CommandBuffer(int initialCapacity = DefaultCapacity)`
+
+创建命令缓冲。
+
+#### `void Add<T>(Entity entity, T component)`
+
+记录添加组件命令。
+
+实际结构变更不会立即发生，要等 `Playback`。
+
+#### `void Remove<T>(Entity entity)`
+
+记录移除组件命令。
+
+#### `void Destroy(Entity entity)`
+
+记录销毁实体命令。
+
+#### `void Playback(World world)`
+
+按记录顺序回放所有命令。
+
+回放完成后自动清空命令。
+
+#### `void Clear()`
+
+清空命令，不执行。
+
+#### `private void Append(Command command)`
+
+把命令追加到数组。
+
+容量不够时扩容。
 
 ---
 
@@ -2163,6 +2299,40 @@ TestTag
 ### `StructuralChange_SwapRemoveUpdatesMovedEntityLocation`
 
 验证结构迁移触发源 Chunk swap-remove 时，被移动实体的位置仍然正确。
+
+---
+
+## `Assets/Scripts/ECS/Tests/CommandBufferTests.cs`
+
+测试 `CommandBuffer` 和 `World.Playback`。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+Health
+```
+
+### `Add_PlaybackAddsComponent`
+
+验证 Add 命令在 Playback 前不生效，Playback 后添加组件。
+
+### `Remove_PlaybackRemovesComponent`
+
+验证 Remove 命令在 Playback 前不生效，Playback 后移除组件。
+
+### `Destroy_PlaybackDestroysEntity`
+
+验证 Destroy 命令在 Playback 后销毁实体。
+
+### `PlaybackOrder_IsDeterministic`
+
+验证命令按记录顺序回放。
+
+### `Clear_DropsRecordedCommands`
+
+验证 `Clear` 会丢弃命令，之后 Playback 不会执行被清掉的命令。
 
 ---
 
