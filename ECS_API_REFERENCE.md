@@ -1896,6 +1896,355 @@ Playback 把结构变更应用到 Archetype/Chunk
 
 ---
 
+## `Assets/Scripts/ECS/Unity/Position2D.cs`
+
+### `Position2D`
+
+2D 位置组件。
+
+```csharp
+public struct Position2D : IComponentData
+```
+
+它是纯 ECS 数据，可以进入 Chunk。
+
+### 字段
+
+#### `public float X`
+
+横向位置。
+
+#### `public float Y`
+
+纵向位置。
+
+### 构造函数
+
+#### `Position2D(float x, float y)`
+
+创建 2D 位置数据。
+
+---
+
+## `Assets/Scripts/ECS/Unity/TransformProxy.cs`
+
+### `TransformProxy`
+
+Unity Transform 代理组件。
+
+```csharp
+public struct TransformProxy : IComponentData
+```
+
+它不保存 `Transform` 引用，只保存 `TransformBridge` 返回的整数 Id。
+
+这样做的原因：
+
+```text
+Chunk 里保持纯数据
+UnityEngine.Object 留在托管桥接表
+只有需要表现同步的实体才付出 Unity 对象访问成本
+```
+
+### 字段
+
+#### `public int Id`
+
+桥接表里的 Transform 槽位编号。
+
+### 构造函数
+
+#### `TransformProxy(int id)`
+
+创建 Transform 代理组件。
+
+---
+
+## `Assets/Scripts/ECS/Unity/TransformBridge.cs`
+
+### `TransformBridge`
+
+Unity Transform 桥接表。
+
+```csharp
+public sealed class TransformBridge : IDisposable
+```
+
+它负责把：
+
+```text
+TransformProxy.Id
+```
+
+映射到：
+
+```text
+UnityEngine.Transform
+```
+
+### 字段
+
+#### `private readonly List<Transform> _transforms`
+
+Transform 槽位数组。
+
+每个下标就是一个可写入 `TransformProxy.Id` 的 Id。
+
+#### `private readonly Stack<int> _freeIds`
+
+已注销 Id 的复用栈。
+
+用途：
+
+```text
+Unregister 后回收槽位
+Register 时优先复用旧槽位
+```
+
+#### `private int _count`
+
+当前有效 Transform 数量。
+
+### 属性
+
+#### `public int Count`
+
+返回当前有效 Transform 数量。
+
+### API
+
+#### `int Register(Transform transform)`
+
+注册 Transform，并返回 Id。
+
+流程：
+
+```text
+如果有空闲槽位，复用空闲 Id
+否则追加到 _transforms
+_count++
+返回 Id
+```
+
+#### `bool TryGet(int id, out Transform transform)`
+
+尝试通过 Id 获取 Transform。
+
+返回 false 的情况：
+
+```text
+Id 超出范围
+槽位为空
+Unity 对象已经被销毁
+```
+
+#### `Transform Get(int id)`
+
+通过 Id 获取 Transform。
+
+如果找不到，会抛出异常。
+
+#### `void Unregister(int id)`
+
+注销 Transform Id。
+
+流程：
+
+```text
+检查 Id 是否有效
+清空 _transforms[id]
+把 id 放入 _freeIds
+_count--
+```
+
+#### `void Clear()`
+
+清空所有桥接关系。
+
+#### `void Dispose()`
+
+释放桥接表。
+
+当前等价于 `Clear()`。
+
+---
+
+## `Assets/Scripts/ECS/Unity/TransformSyncSystem.cs`
+
+### `TransformSyncSystem`
+
+把 ECS 位置同步到 Unity Transform 的系统。
+
+```csharp
+public sealed unsafe class TransformSyncSystem : EcsSystem
+```
+
+它查询：
+
+```text
+Position2D
+TransformProxy
+```
+
+然后把 `Position2D` 写入对应 Transform 的 `position.x/y`。
+
+### 字段
+
+#### `private readonly TransformBridge _bridge`
+
+Transform 桥接表。
+
+系统通过它把 `TransformProxy.Id` 转成真实 Transform。
+
+#### `private Query<Position2D, TransformProxy> _query`
+
+缓存的查询句柄。
+
+在 `OnCreate` 中创建，避免每帧重复创建查询句柄。
+
+### API
+
+#### `TransformSyncSystem(TransformBridge bridge)`
+
+创建同步系统。
+
+#### `protected override void OnCreate()`
+
+缓存 Query：
+
+```text
+World.Query<Position2D, TransformProxy>()
+```
+
+#### `protected override void OnUpdate(float deltaTime)`
+
+执行同步。
+
+流程：
+
+```text
+ForEachChunk 遍历 Position2D + TransformProxy
+通过 TransformProxy.Id 查 Transform
+找不到 Transform 就跳过
+把 Position2D.X/Y 写入 transform.position
+保留原本 position.z
+```
+
+---
+
+## `Assets/Scripts/ECS/Unity/EcsRunner.cs`
+
+### `EcsRunner`
+
+Unity 场景里的 ECS 启动器。
+
+```csharp
+public class EcsRunner : MonoBehaviour
+```
+
+它负责把 Unity 生命周期接到 ECS：
+
+```text
+Awake -> Initialize
+Update -> Tick
+OnDestroy -> Shutdown
+```
+
+### 字段
+
+#### `private bool addTransformSyncSystem`
+
+是否默认加入 `TransformSyncSystem`。
+
+当前默认开启，让第一版 Unity Bridge 开箱就能同步 Transform。
+
+### 属性
+
+#### `public World World`
+
+Runner 创建并持有的 ECS World。
+
+#### `public SystemPipeline Pipeline`
+
+Runner 创建并驱动的系统管线。
+
+#### `public TransformBridge TransformBridge`
+
+Unity Transform 桥接表。
+
+#### `public bool IsRunning`
+
+Runner 是否已经初始化。
+
+### Unity 生命周期
+
+#### `private void Awake()`
+
+调用 `Initialize()`。
+
+#### `private void Update()`
+
+调用 `Tick(Time.deltaTime)`。
+
+#### `private void OnDestroy()`
+
+调用 `Shutdown()`。
+
+### API
+
+#### `public void Initialize()`
+
+手动初始化 ECS。
+
+流程：
+
+```text
+创建 World
+创建 SystemPipeline
+创建 TransformBridge
+调用 Configure
+```
+
+重复调用不会重复创建。
+
+#### `public void Tick(float deltaTime)`
+
+执行一帧 ECS 更新。
+
+内部调用：
+
+```text
+Pipeline.Update(deltaTime)
+```
+
+#### `public void Shutdown()`
+
+释放 ECS。
+
+流程：
+
+```text
+Pipeline.Dispose
+TransformBridge.Dispose
+World.Dispose
+清空引用
+```
+
+#### `protected virtual void Configure(SystemPipeline pipeline, World world, TransformBridge transformBridge)`
+
+系统注册入口。
+
+子类可以重写这里加入自己的系统。
+
+默认行为：
+
+```text
+如果 addTransformSyncSystem 为 true
+加入 TransformSyncSystem
+```
+
+---
+
 ## 三、测试脚本
 
 ## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
@@ -2896,9 +3245,60 @@ Update 时先执行 A，再执行 B
 
 ---
 
+## `Assets/Scripts/ECS/Tests/UnityBridgeTests.cs`
+
+测试 Unity Bridge 最小链路。
+
+### `SetUp`
+
+每个测试前清空 `TypeRegistry`。
+
+### `TransformBridge_RegisterAndGet_Works`
+
+验证 `TransformBridge` 可以：
+
+```text
+注册 Transform
+返回 Id
+通过 Id 找回 Transform
+正确维护 Count
+```
+
+### `TransformBridge_Unregister_ReusesSlot`
+
+验证注销后的 Id 可以被下一次注册复用。
+
+这可以减少桥接表空洞。
+
+### `TransformSyncSystem_UpdatesTransform`
+
+验证 `TransformSyncSystem` 能把 ECS 数据写回 Unity Transform。
+
+测试流程：
+
+```text
+创建 GameObject
+TransformBridge.Register
+World.Create(Position2D, TransformProxy)
+SystemPipeline.Add(TransformSyncSystem)
+Pipeline.Update
+检查 transform.position.x/y
+```
+
+### `EcsRunner_InitializeAndShutdown_ManagesWorld`
+
+验证 `EcsRunner` 可以手动初始化和释放：
+
+```text
+Initialize 创建 World / Pipeline / TransformBridge
+Shutdown 释放并清空引用
+```
+
+---
+
 ## 四、当前阶段总结
 
-当前已经实现到阶段 D 的安全执行层：
+当前已经实现到阶段 E 的 Unity 接入层第一版：
 
 ```text
 Component 类型身份
@@ -2916,18 +3316,27 @@ World.Add / Remove / Destroy
 CommandBuffer / Playback
 QueryCache / Query / ForEachChunk
 EcsSystem / SystemPipeline
+Position2D
+TransformProxy
+TransformBridge
+TransformSyncSystem
+EcsRunner
 ```
 
 还没有实现：
 
 ```text
-Unity Bridge
 Debug & Benchmark
 Convenience API
 Advanced Optimization
+完整 Authoring
+SpriteRenderer Bridge
+批量渲染 Bridge
 ```
 
-因此当前代码已经能跑通一帧核心 ECS 链路：
+因此当前代码已经能跑通两条链路。
+
+核心 ECS 链路：
 
 ```text
 创建实体
@@ -2939,4 +3348,15 @@ Playback 应用结构变更
 下一个系统读取变更结果
 ```
 
-下一步建议进入阶段 E：Unity 接入层，也就是实现 `EcsRunner` 和第一版 Unity Bridge。
+Unity Bridge 链路：
+
+```text
+Unity EcsRunner 初始化 World/Pipeline
+TransformBridge 注册 Transform
+ECS Entity 持有 Position2D + TransformProxy
+TransformSyncSystem Query ECS 数据
+通过 TransformProxy.Id 找到 Transform
+写回 transform.position
+```
+
+下一步建议进入阶段 F：Debug & Benchmark，先让实体数、Archetype 数、Chunk 数和系统耗时可见，再继续做更高级的 Authoring 和 SpriteRenderer Bridge。
