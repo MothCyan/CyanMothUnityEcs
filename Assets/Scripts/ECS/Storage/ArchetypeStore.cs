@@ -54,6 +54,11 @@ namespace CyanMothUnityEcs
             return _archetypes[id];
         }
 
+        public Archetype GetByIndex(int index)
+        {
+            return GetById(index);
+        }
+
         public bool TryFind(ComponentMask mask, out Archetype archetype)
         {
             if (_idsByMask.TryGetValue(mask, out int id))

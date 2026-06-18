@@ -12,6 +12,7 @@ namespace CyanMothUnityEcs
         private readonly ArchetypeStore _archetypes;
         private readonly ChunkAllocator _chunks;
         private readonly CommandBuffer _commands;
+        private readonly QueryCache _queryCache;
         private bool _disposed;
 
         public World()
@@ -20,6 +21,7 @@ namespace CyanMothUnityEcs
             _archetypes = new ArchetypeStore();
             _chunks = new ChunkAllocator();
             _commands = new CommandBuffer();
+            _queryCache = new QueryCache(_archetypes);
         }
 
         public int CreatedEntityCapacity => _entities.CreatedCapacity;

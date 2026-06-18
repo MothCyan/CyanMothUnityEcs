@@ -955,6 +955,18 @@ World.Dispose 时释放 native memory
 在 World.Playback 安全点统一回放
 ```
 
+#### `private readonly QueryCache _queryCache`
+
+Query 到 Archetype 的匹配缓存。
+
+用途：
+
+```text
+World.Query<T>
+-> QueryCache.GetOrCreate
+-> ForEachChunk 时拿匹配 Archetype 列表
+```
+
 #### `private bool _disposed`
 
 标记 World 是否已经释放。
@@ -1424,6 +1436,184 @@ UnsafeUtil.Copy 拷贝一行组件数据
 把一个 Chunk 从 Archetype 的 Chunk 双向链表中移除。
 
 当 Chunk 删除实体后变空时调用。
+
+---
+
+## `Assets/Scripts/ECS/Core/World.Query.cs`
+
+### Query 入口和 Chunk 遍历执行
+
+这一份 partial class 负责：
+
+```text
+World.Query<T1>
+World.Query<T1,T2>
+World.Query<T1,T2,T3>
+ForEachChunk 执行
+```
+
+### API
+
+#### `Query<T1> Query<T1>()`
+
+创建单组件 Query。
+
+#### `Query<T1, T2> Query<T1, T2>()`
+
+创建双组件 Query。
+
+#### `Query<T1, T2, T3> Query<T1, T2, T3>()`
+
+创建三组件 Query。
+
+### 内部执行方法
+
+#### `internal void ForEachChunk<T1>(int queryId, ChunkAction<T1> action)`
+
+执行单组件 Chunk 遍历。
+
+流程：
+
+```text
+QueryCache.GetMatchingArchetypes
+-> 遍历匹配 Archetype
+-> 遍历 Archetype 下的 Chunk 链表
+-> 根据 Layout offset 找 T1*
+-> 调用 ChunkAction
+```
+
+#### `internal void ForEachChunk<T1, T2>(...)`
+
+执行双组件 Chunk 遍历。
+
+#### `internal void ForEachChunk<T1, T2, T3>(...)`
+
+执行三组件 Chunk 遍历。
+
+#### `private static Entity* GetEntityArray(...)`
+
+根据 Chunk 和 ArchetypeLayout 找到 `Entity[]` 起始地址。
+
+---
+
+## `Assets/Scripts/ECS/Query/QueryDelegates.cs`
+
+### Query 回调类型
+
+定义 Query 遍历时用户传入的回调。
+
+### `QueryAction`
+
+面向易用的逐实体回调：
+
+```text
+QueryAction<T1>
+QueryAction<T1,T2>
+QueryAction<T1,T2,T3>
+```
+
+形态：
+
+```csharp
+(Entity entity, ref Position position, ref Velocity velocity) => {}
+```
+
+### `ChunkAction`
+
+面向性能的逐 Chunk 回调：
+
+```text
+ChunkAction<T1>
+ChunkAction<T1,T2>
+ChunkAction<T1,T2,T3>
+```
+
+形态：
+
+```csharp
+(Entity* entities, Position* positions, Velocity* velocities, int count) => {}
+```
+
+---
+
+## `Assets/Scripts/ECS/Query/QueryCache.cs`
+
+### `QueryCache`
+
+缓存 Query 命中的 Archetype 列表。
+
+它避免每次执行 Query 都重新扫描所有 Archetype。
+
+### 字段
+
+#### `private readonly ArchetypeStore _archetypes`
+
+QueryCache 依赖的 ArchetypeStore。
+
+#### `private readonly List<QueryRecord> _records`
+
+所有 Query 记录。
+
+### API
+
+#### `int GetOrCreate(ComponentMask include, ComponentMask exclude)`
+
+根据 include/exclude mask 获取 QueryId。
+
+如果不存在则创建新 QueryRecord 并立刻刷新。
+
+#### `int[] GetMatchingArchetypes(int queryId)`
+
+获取该 Query 命中的 ArchetypeId 列表。
+
+如果 ArchetypeStore.Version 变化，会自动刷新缓存。
+
+#### `private void Refresh(int queryId)`
+
+重新扫描所有 Archetype：
+
+```text
+archetype.Mask.ContainsAll(include)
+并且不与 exclude 相交
+```
+
+当前公开 API 还没有 `Without<T>`，所以 exclude 暂时只使用空 mask。
+
+---
+
+## `Assets/Scripts/ECS/Query/Query.cs`
+
+### `Query<T1>` / `Query<T1,T2>` / `Query<T1,T2,T3>`
+
+Query 是用户持有的查询句柄。
+
+它内部只保存：
+
+```text
+World
+QueryId
+```
+
+### API
+
+#### `ForEach(...)`
+
+易用版逐实体遍历。
+
+内部基于 `ForEachChunk` 包装：
+
+```text
+ForEach
+-> ForEachChunk
+-> for i in count
+-> 调用用户 QueryAction
+```
+
+#### `ForEachChunk(...)`
+
+高性能逐 Chunk 遍历。
+
+它会把连续组件数组指针交给用户。
 
 ---
 
@@ -2333,6 +2523,40 @@ Health
 ### `Clear_DropsRecordedCommands`
 
 验证 `Clear` 会丢弃命令，之后 Playback 不会执行被清掉的命令。
+
+---
+
+## `Assets/Scripts/ECS/Tests/QueryTests.cs`
+
+测试 QueryCache、Query 和 ForEach/ForEachChunk。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+Health
+```
+
+### `Query_OneComponent_ReturnsMatchingEntities`
+
+验证单组件 Query 会命中所有包含该组件的 Archetype。
+
+### `Query_TwoComponents_ReturnsOnlyMatchingArchetypes`
+
+验证双组件 Query 只返回同时包含两个组件的实体。
+
+### `Query_ThreeComponents_ReturnsMatchingEntities`
+
+验证三组件 Query 正确。
+
+### `Query_AfterNewArchetype_RefreshesCache`
+
+验证 Query 创建后，如果新 Archetype 出现，QueryCache 会根据 ArchetypeStore.Version 自动刷新。
+
+### `ForEachChunk_CanMutateStoredData`
+
+验证 ForEachChunk 拿到的是 Chunk 内真实组件指针，修改后可以通过 `World.Get<T>` 读回。
 
 ---
 

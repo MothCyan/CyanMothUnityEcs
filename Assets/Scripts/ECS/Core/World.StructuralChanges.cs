@@ -175,11 +175,6 @@ namespace CyanMothUnityEcs
             chunk->Count--;
         }
 
-        private static Entity* GetEntityArray(Chunk* chunk, Archetype archetype)
-        {
-            return (Entity*)((byte*)chunk + archetype.Layout.EntityOffset);
-        }
-
         private static void MoveComponentRows(Archetype archetype, Chunk* chunk, int sourceSlot, int targetSlot)
         {
             for (int i = 0; i < archetype.Types.Length; i++)
