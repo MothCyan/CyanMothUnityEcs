@@ -5,7 +5,7 @@ namespace CyanMothUnityEcs
 {
     /// <summary>
     /// Chunk 内存分配器。
-    /// 它一次申请一批 native memory，然后切成多个固定大小 Chunk，避免每个 Chunk 都触发系统分配。
+    /// 它一次申请一块 native memory，然后切成多个固定大小 Chunk，避免每个 Chunk 都触发系统分配。
     /// </summary>
     internal unsafe sealed class ChunkAllocator : IDisposable
     {
@@ -16,6 +16,7 @@ namespace CyanMothUnityEcs
         private int _blockCount;
         private Chunk* _freeList;
         private int _nextSequence;
+        private int _allocatedChunkCount;
         private bool _disposed;
 
         public ChunkAllocator(int chunksPerBlock = DefaultChunksPerBlock)
@@ -30,7 +31,8 @@ namespace CyanMothUnityEcs
         public int BlockCount => _blockCount;
         public int ChunkSize => Chunk.Size;
         public int Alignment => Chunk.Alignment;
-
+        public int AllocatedChunkCount => _allocatedChunkCount;
+        public int ReservedChunkCount => _blockCount * _chunksPerBlock;
 
         public Chunk* Allocate(int archetypeId, int capacity)
         {
@@ -48,6 +50,7 @@ namespace CyanMothUnityEcs
             _freeList = chunk->NextFree;
 
             chunk->Reset(archetypeId, capacity, _nextSequence++);
+            _allocatedChunkCount++;
             return chunk;
         }
 
@@ -62,6 +65,7 @@ namespace CyanMothUnityEcs
             chunk->Reset(-1, 0, 0);
             chunk->NextFree = _freeList;
             _freeList = chunk;
+            _allocatedChunkCount--;
         }
 
         public void Dispose()
@@ -75,6 +79,7 @@ namespace CyanMothUnityEcs
             Array.Clear(_rawBlocks, 0, _rawBlocks.Length);
             _blockCount = 0;
             _freeList = null;
+            _allocatedChunkCount = 0;
             _disposed = true;
         }
 

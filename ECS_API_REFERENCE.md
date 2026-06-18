@@ -897,15 +897,15 @@ public unsafe sealed partial class World : IDisposable
 EntityStore
 ArchetypeStore
 ChunkAllocator
+CommandBuffer
+QueryCache
 ```
 
 还没有接入：
 
 ```text
-CommandBuffer
-QueryCache
-SystemPipeline
-Unity Bridge
+World 自身不直接持有 SystemPipeline
+World 自身不直接持有 Unity Bridge
 ```
 
 ### 字段
@@ -1030,6 +1030,36 @@ ChunkAllocator.Dispose()
 #### `private void ThrowIfDisposed()`
 
 防止释放后的 World 继续被使用。
+
+---
+
+## `Assets/Scripts/ECS/Core/World.Debugging.cs`
+
+### World 调试统计扩展
+
+这是 `World` 的 partial 文件，专门放调试和统计入口。
+
+### API
+
+#### `WorldStats GetStats()`
+
+获取当前 World 的统计快照。
+
+它会遍历所有 Archetype 的 Chunk 链表，统计：
+
+```text
+活实体数量
+Archetype 数量
+正在使用的 Chunk 数量
+已保留 Chunk 数量
+Chunk 总容量
+待回放命令数量
+Chunk 利用率
+```
+
+注意：
+
+这个 API 面向调试面板和 Benchmark，不建议在热路径系统中频繁调用。
 
 ---
 
@@ -1893,6 +1923,176 @@ Playback 把结构变更应用到 Archetype/Chunk
 检查管线是否已经释放。
 
 释放后继续调用 `Add` 或 `Update` 会抛出 `ObjectDisposedException`。
+
+---
+
+## `Assets/Scripts/ECS/Debugging/WorldStats.cs`
+
+### `WorldStats`
+
+World 的只读调试快照。
+
+```csharp
+public readonly struct WorldStats
+```
+
+它只保存统计结果，不持有 Chunk 指针。
+
+### 字段
+
+#### `public readonly int AliveEntityCount`
+
+当前存活实体数量。
+
+#### `public readonly int CreatedEntityCapacity`
+
+EntityStore 已经分配过的实体槽位上界。
+
+它不是存活实体数，而是用来观察 EntityId 增长和复用情况。
+
+#### `public readonly int ArchetypeCount`
+
+当前已经创建的 Archetype 数量。
+
+#### `public readonly int ChunkCount`
+
+当前正在被 Archetype 链表使用的 Chunk 数量。
+
+#### `public readonly int ReservedChunkCount`
+
+ChunkAllocator 已经向系统申请并切好的 Chunk 总数量。
+
+其中一部分可能在 free list 中等待复用。
+
+#### `public readonly int TotalChunkCapacity`
+
+当前正在使用的 Chunk 总共可以容纳多少实体。
+
+#### `public readonly int CommandCount`
+
+CommandBuffer 中等待 Playback 的命令数量。
+
+#### `public readonly float ChunkUtilization`
+
+Chunk 利用率。
+
+计算方式：
+
+```text
+AliveEntityCount / TotalChunkCapacity
+```
+
+### API
+
+#### `override string ToString()`
+
+输出适合日志显示的一行摘要。
+
+---
+
+## `Assets/Scripts/ECS/Debugging/EcsBenchmarkResult.cs`
+
+### `EcsBenchmarkResult`
+
+单项 Benchmark 结果。
+
+### 字段
+
+#### `public readonly string Name`
+
+Benchmark 名称。
+
+#### `public readonly int Iterations`
+
+本次测试的迭代数量。
+
+#### `public readonly long ElapsedTicks`
+
+耗时 ticks。
+
+适合做更细粒度统计。
+
+#### `public readonly double ElapsedMilliseconds`
+
+耗时毫秒。
+
+适合直接阅读。
+
+#### `public readonly WorldStats Stats`
+
+Benchmark 结束时的 World 统计快照。
+
+### API
+
+#### `override string ToString()`
+
+输出一行 Benchmark 摘要。
+
+---
+
+## `Assets/Scripts/ECS/Debugging/EcsBenchmark.cs`
+
+### `EcsBenchmark`
+
+第一版 ECS 基准测试入口。
+
+```csharp
+public static class EcsBenchmark
+```
+
+它只用于调试和性能反馈，不参与游戏运行时热路径。
+
+### API
+
+#### `EcsBenchmarkResult CreatePositionVelocity(int count)`
+
+测试创建 `count` 个双组件实体。
+
+流程：
+
+```text
+清空 TypeRegistry
+创建 World
+循环 World.Create(Position, Velocity)
+记录耗时
+返回 WorldStats
+```
+
+#### `EcsBenchmarkResult QueryPositionVelocity(int count)`
+
+测试查询并遍历 `count` 个双组件实体。
+
+流程：
+
+```text
+先创建 count 个实体
+创建 Query<Position, Velocity>
+ForEach 遍历
+记录 Query 耗时
+```
+
+#### `EcsBenchmarkResult AddRemoveHealth(int count)`
+
+测试结构变更迁移。
+
+流程：
+
+```text
+先创建 count 个 Position 实体
+循环 Add Health
+循环 Remove Health
+记录耗时
+```
+
+### 内部 Benchmark 组件
+
+```text
+BenchmarkPosition
+BenchmarkVelocity
+BenchmarkHealth
+```
+
+它们只给 Benchmark 使用，不作为业务通用组件。
 
 ---
 
@@ -3296,9 +3496,65 @@ Shutdown 释放并清空引用
 
 ---
 
+## `Assets/Scripts/ECS/Tests/WorldStatsTests.cs`
+
+测试 `World.GetStats()`。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+Health
+```
+
+### `GetStats_EmptyWorld_ReturnsZeroRuntimeCounts`
+
+验证空 World 的运行时统计为 0。
+
+### `GetStats_AfterCreate_ReturnsEntityArchetypeAndChunkCounts`
+
+验证创建不同组件组合实体后：
+
+```text
+AliveEntityCount 正确
+ArchetypeCount 正确
+ChunkCount 正确
+TotalChunkCapacity 不小于实体数量
+ChunkUtilization 大于 0
+```
+
+### `GetStats_AfterDestroy_UpdatesAliveEntityAndChunkCounts`
+
+验证销毁实体并释放空 Chunk 后，统计会更新。
+
+### `GetStats_BeforePlayback_ReturnsCommandCount`
+
+验证命令还没 Playback 前，`CommandCount` 能反映待执行命令数量。
+
+---
+
+## `Assets/Scripts/ECS/Tests/EcsBenchmarkTests.cs`
+
+测试 `EcsBenchmark` 基本可用。
+
+### `CreatePositionVelocity_ReturnsStats`
+
+验证创建实体 Benchmark 能返回结果和统计快照。
+
+### `QueryPositionVelocity_ReturnsStats`
+
+验证 Query Benchmark 能返回结果和统计快照。
+
+### `AddRemoveHealth_ReturnsStats`
+
+验证结构变更 Benchmark 能返回结果和统计快照。
+
+---
+
 ## 四、当前阶段总结
 
-当前已经实现到阶段 E 的 Unity 接入层第一版：
+当前已经实现到阶段 F 的 Debug & Benchmark 第一版：
 
 ```text
 Component 类型身份
@@ -3321,17 +3577,22 @@ TransformProxy
 TransformBridge
 TransformSyncSystem
 EcsRunner
+WorldStats
+World.GetStats
+EcsBenchmarkResult
+EcsBenchmark
 ```
 
 还没有实现：
 
 ```text
-Debug & Benchmark
 Convenience API
 Advanced Optimization
 完整 Authoring
 SpriteRenderer Bridge
 批量渲染 Bridge
+Debug Window 可视化面板
+更细的系统耗时统计
 ```
 
 因此当前代码已经能跑通两条链路。
@@ -3359,4 +3620,14 @@ TransformSyncSystem Query ECS 数据
 写回 transform.position
 ```
 
-下一步建议进入阶段 F：Debug & Benchmark，先让实体数、Archetype 数、Chunk 数和系统耗时可见，再继续做更高级的 Authoring 和 SpriteRenderer Bridge。
+Debug & Benchmark 链路：
+
+```text
+World.GetStats 遍历 Archetype/Chunk
+生成 WorldStats 快照
+EcsBenchmark 运行固定测试
+EcsBenchmarkResult 记录耗时和统计
+后续用这些数据判断优化是否真的有效
+```
+
+下一步建议进入阶段 G：Convenience API，先做 `CreateMany`、轻量模板和更顺手的 QuerySystem，但所有便捷 API 都必须落回当前高性能底层路径。

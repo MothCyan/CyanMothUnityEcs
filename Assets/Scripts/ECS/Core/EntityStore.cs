@@ -33,6 +33,7 @@ namespace CyanMothUnityEcs
 
         public int Capacity => _versions.Length;
         public int CreatedCapacity => _nextId;
+        public int AliveCount => _nextId - 1 - _freeCount;
 
         public Entity Create()
         {
