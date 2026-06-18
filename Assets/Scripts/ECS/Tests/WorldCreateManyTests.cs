@@ -95,6 +95,31 @@ namespace CyanMothUnityEcs.Tests
         }
 
         [Test]
+        public void CreateMany_MoreThanOneChunk_WritesAllEntities()
+        {
+            using (World world = new World())
+            {
+                const int count = 3000;
+                Position[] positions = new Position[count];
+                Entity[] entities = new Entity[count];
+
+                for (int i = 0; i < count; i++)
+                    positions[i] = new Position { X = i };
+
+                world.CreateMany(positions, entities);
+
+                WorldStats stats = world.GetStats();
+                Assert.Greater(stats.ChunkCount, 1);
+
+                for (int i = 0; i < count; i++)
+                {
+                    Assert.IsTrue(world.IsAlive(entities[i]));
+                    Assert.AreEqual(i, world.Get<Position>(entities[i]).X);
+                }
+            }
+        }
+
+        [Test]
         public void CreateMany_MismatchedComponentLengths_Throws()
         {
             using (World world = new World())

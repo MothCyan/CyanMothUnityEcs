@@ -1285,6 +1285,10 @@ Tag 组件没有数据区，因此会直接返回。
 ```text
 复用同一个 ComponentType
 复用同一个 Archetype
+按 Chunk 可用容量分批
+连续创建 Entity
+连续写 Entity[]
+连续写组件数组
 把创建出的 Entity 写入调用方提供的数组
 ```
 
@@ -1317,6 +1321,47 @@ Tag 组件没有数据区，因此会直接返回。
 批量创建三组件实体，并返回新分配的 Entity 数组。
 
 ### 内部校验
+
+### 内部批写 helper
+
+#### `private void AllocateEntityRange(...)`
+
+为同一个 Archetype 在当前可写 Chunk 中批量分配一段连续 slot。
+
+流程：
+
+```text
+GetWritableChunk
+计算当前 Chunk 还能写多少实体
+一次性增加 chunk.Count
+循环创建 Entity
+连续写 Entity[]
+连续更新 EntityStore location
+如果 Chunk 写满，从 free list 移除
+```
+
+它减少的是每个实体重复执行：
+
+```text
+GetWritableChunk
+chunk.Count++
+满 Chunk 判断
+```
+
+#### `private static void WriteComponentRange<T>(...)`
+
+把组件数组的一段连续数据写入 Chunk 的组件数组。
+
+流程：
+
+```text
+获取组件 offset 和 stride
+定位目标 Chunk 起始 slot
+fixed 住源组件数组
+循环 memcpy 到连续组件区域
+```
+
+Tag 组件没有数据区，会直接返回。
 
 #### `private static void ValidateCreateManyInputs<T>(...)`
 
@@ -3482,6 +3527,17 @@ Health
 
 验证批量创建三组件实体后，实体直接进入最终 Archetype。
 
+### `CreateMany_MoreThanOneChunk_WritesAllEntities`
+
+验证批量创建数量超过单个 Chunk 容量时：
+
+```text
+会自动跨 Chunk 写入
+ChunkCount 大于 1
+所有 Entity 都存活
+所有组件数据都能按原顺序读回
+```
+
 ### `CreateMany_MismatchedComponentLengths_Throws`
 
 验证组件数组长度不一致时会抛出异常。
@@ -3848,7 +3904,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第一项：
+当前已经实现到阶段 H 的 Advanced Optimization 第二项：
 
 ```text
 Component 类型身份
@@ -3881,6 +3937,7 @@ QuerySystem<T1,T2>
 QuerySystem<T1,T2,T3>
 QueryArchetypeMatch
 Query offset 缓存
+CreateMany Chunk 批写优化
 ```
 
 还没有实现：
@@ -3893,7 +3950,6 @@ Debug Window 可视化面板
 更细的系统耗时统计
 ArchetypePrefab
 更完整的便捷 Command API
-CreateMany Chunk 批写优化
 CommandBuffer 命令合并
 Enableable Component
 ChangeVersion 过滤
@@ -3940,8 +3996,9 @@ Convenience API 链路：
 ```text
 调用 World.CreateMany
 复用 ComponentType 和 Archetype
-连续 AllocateEntity
-写入 Chunk 组件数组
+按 Chunk 可用容量分批
+连续 AllocateEntityRange
+连续 WriteComponentRange
 返回或填充 Entity 输出数组
 
 继承 QuerySystem<T...>
@@ -3962,4 +4019,18 @@ ForEachChunk 直接使用缓存 offset
 避免每次遍历重复 GetComponentOffset
 ```
 
-下一步建议继续阶段 H：优先做 `CreateMany` 的 Chunk 批写优化，让批量创建不只是少写循环，而是真的按 Chunk 连续填充。
+CreateMany Chunk 批写链路：
+
+```text
+World.CreateMany
+获取最终 Archetype
+while 还有数据未写完
+  -> GetWritableChunk
+  -> 计算本 Chunk 可写 batchCount
+  -> chunk.Count 一次性前进
+  -> 连续创建 Entity 并写 Entity[]
+  -> 连续写组件数组
+  -> Chunk 写满则移出 free list
+```
+
+下一步建议继续阶段 H：优先做 `CommandBuffer` 命令合并或更底层的原始命令缓冲，减少结构变更回放时的委托调用和重复迁移。
