@@ -879,6 +879,274 @@ swap-remove 后 moved entity 更新位置
 
 ---
 
+## `Assets/Scripts/ECS/Core/World.cs`
+
+### `World`
+
+ECS 世界的统一入口。
+
+```csharp
+public unsafe sealed partial class World : IDisposable
+```
+
+它负责把上层 API 转成底层模块调用。
+
+当前阶段已经接入：
+
+```text
+EntityStore
+ArchetypeStore
+ChunkAllocator
+```
+
+还没有接入：
+
+```text
+CommandBuffer
+QueryCache
+SystemPipeline
+Unity Bridge
+```
+
+### 字段
+
+#### `private readonly EntityStore _entities`
+
+实体位置表。
+
+用途：
+
+```text
+创建 Entity
+判断 Entity 是否存活
+记录 Entity 当前所在 Chunk / slot / Archetype
+```
+
+#### `private readonly ArchetypeStore _archetypes`
+
+Archetype 管理器。
+
+用途：
+
+```text
+根据组件组合获取 Archetype
+通过 ArchetypeId 找回 Archetype
+```
+
+#### `private readonly ChunkAllocator _chunks`
+
+Chunk native memory 分配器。
+
+用途：
+
+```text
+当 Archetype 没有可写 Chunk 时分配新 Chunk
+World.Dispose 时释放 native memory
+```
+
+#### `private bool _disposed`
+
+标记 World 是否已经释放。
+
+### 属性
+
+#### `public int CreatedEntityCapacity`
+
+返回 `EntityStore.CreatedCapacity`。
+
+当前用于测试和调试。
+
+#### `public int ArchetypeCount`
+
+返回当前已经创建的 Archetype 数量。
+
+### API
+
+#### `World()`
+
+创建 World，并初始化：
+
+```text
+EntityStore
+ArchetypeStore
+ChunkAllocator
+```
+
+#### `bool IsAlive(Entity entity)`
+
+判断实体是否当前存活。
+
+#### `void Dispose()`
+
+释放 World 持有的 native memory。
+
+当前主要调用：
+
+```text
+ChunkAllocator.Dispose()
+```
+
+#### `private void ThrowIfDisposed()`
+
+防止释放后的 World 继续被使用。
+
+---
+
+## `Assets/Scripts/ECS/Core/World.Create.cs`
+
+### 创建相关 API
+
+这一份 partial class 负责实体创建和 Chunk 写入。
+
+### API
+
+#### `Entity Create<T1>(T1 c1)`
+
+创建一个拥有 1 个组件的实体。
+
+流程：
+
+```text
+TypeRegistry.Get<T1>
+-> ArchetypeStore.GetOrCreate
+-> AllocateEntity
+-> WriteComponent
+```
+
+#### `Entity Create<T1, T2>(T1 c1, T2 c2)`
+
+创建一个拥有 2 个组件的实体。
+
+重点：
+
+```text
+直接进入最终 Archetype
+不会先创建空实体再 AddComponent
+```
+
+#### `Entity Create<T1, T2, T3>(T1 c1, T2 c2, T3 c3)`
+
+创建一个拥有 3 个组件的实体。
+
+后续可以继续扩展到固定上限，例如 4 个组件。
+
+#### `private Entity AllocateEntity(Archetype archetype, out Chunk* chunk, out int slot)`
+
+为某个 Archetype 分配一个实体 slot。
+
+流程：
+
+```text
+GetWritableChunk
+-> chunk.Count++
+-> EntityStore.Create
+-> 写 Entity[]
+-> EntityStore.SetLocation
+-> 如果 Chunk 满了，从 free list 移除
+```
+
+#### `private Chunk* GetWritableChunk(Archetype archetype)`
+
+获取一个还有空位的 Chunk。
+
+如果没有可写 Chunk：
+
+```text
+ChunkAllocator.Allocate
+-> LinkChunk
+-> AddToFreeList
+```
+
+#### `private static void LinkChunk(Archetype archetype, Chunk* chunk)`
+
+把新 Chunk 挂到 Archetype 的 Chunk 链表上。
+
+#### `private static void AddToFreeList(Archetype archetype, Chunk* chunk)`
+
+把有空位的 Chunk 放进 Archetype 的可写 Chunk 链表。
+
+#### `private static void RemoveFromFreeList(Archetype archetype, Chunk* chunk)`
+
+当 Chunk 写满时，把它从可写 Chunk 链表移除。
+
+#### `private static void WriteEntity(Chunk* chunk, Archetype archetype, int slot, Entity entity)`
+
+把 Entity 句柄写入 Chunk 内的 `Entity[]`。
+
+#### `private static void WriteComponent<T>(...)`
+
+把组件数据写入 Chunk 内对应组件数组的 slot。
+
+Tag 组件没有数据区，因此会直接返回。
+
+---
+
+## `Assets/Scripts/ECS/Core/World.Access.cs`
+
+### 随机访问相关 API
+
+这一份 partial class 负责：
+
+```text
+Has<T>
+Get<T>
+Set<T>
+```
+
+它适合少量随机访问，不适合每帧大量实体循环。
+
+批量逻辑后续应走 Query。
+
+### API
+
+#### `bool Has<T>(Entity entity)`
+
+判断实体当前 Archetype 是否包含组件 `T`。
+
+流程：
+
+```text
+EntityStore.Validate
+-> TypeRegistry.Get<T>
+-> EntityStore.GetArchetypeId
+-> ArchetypeStore.GetById
+-> Archetype.Has
+```
+
+#### `ref T Get<T>(Entity entity)`
+
+返回组件在 Chunk 内的真实引用。
+
+流程：
+
+```text
+TypeRegistry.Get<T>
+-> GetEntityChunk
+-> Archetype.GetComponentOffset
+-> 根据 offset + stride * slot 定位组件
+-> return ref
+```
+
+注意：
+
+```text
+Tag 组件没有数据区，不能 Get ref
+```
+
+#### `void Set<T>(Entity entity, T component)`
+
+覆盖实体当前组件数据。
+
+Tag 组件没有数据区，因此 Set Tag 会直接返回。
+
+#### `private Chunk* GetEntityChunk(Entity entity, out int slot, out Archetype archetype)`
+
+通过 EntityStore 定位实体当前所在 Chunk、slot 和 Archetype。
+
+这个方法是 `Get<T>` 和 `Set<T>` 的共同底层入口。
+
+---
+
 ## 三、测试脚本
 
 ## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
@@ -1591,6 +1859,65 @@ ArchetypeStore 版本号。
 ### `TryFind_ReturnsArchetypeByMask`
 
 验证可以通过 `ComponentMask` 找回已经创建的 Archetype。
+
+---
+
+## `Assets/Scripts/ECS/Tests/WorldCreateAccessTests.cs`
+
+测试 `World.Create`、`World.Get`、`World.Set`、`World.Has` 的第一条真实数据链路。
+
+### 内部测试组件 `Position`
+
+测试用位置组件。
+
+### 内部测试组件 `Velocity`
+
+测试用速度组件。
+
+### 内部测试组件 `Health`
+
+测试用生命值组件。
+
+### 内部测试组件 `TestTag`
+
+测试用 Tag 组件。
+
+### `SetUp`
+
+每个测试前清空 `TypeRegistry`。
+
+### `CreateOneComponent_WritesData`
+
+验证创建单组件实体后，可以从 Chunk 中读回组件数据。
+
+### `CreateTwoComponents_WritesData`
+
+验证创建双组件实体后：
+
+- `Has<T>` 正确。
+- 第二个组件也能正确写入和读回。
+
+### `CreateThreeComponents_UsesSingleArchetype`
+
+验证三组件创建会直接进入一个最终 Archetype。
+
+### `Get_ReturnsRefToStoredData`
+
+验证 `Get<T>` 返回的是 Chunk 内真实数据的 `ref`。
+
+修改这个引用后，再次 `Get<T>` 能读到新值。
+
+### `Set_UpdatesStoredData`
+
+验证 `Set<T>` 能覆盖 Chunk 中已有组件数据。
+
+### `Has_UsesArchetypeMask`
+
+验证 `Has<T>` 是通过当前 Archetype 的组件掩码判断。
+
+### `Get_MissingComponent_Throws`
+
+验证访问不存在的组件会抛出异常。
 
 ---
 
