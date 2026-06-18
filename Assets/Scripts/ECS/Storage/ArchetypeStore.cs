@@ -19,6 +19,19 @@ namespace CyanMothUnityEcs
         {
             ComponentType[] normalizedTypes = NormalizeTypes(types);
             ComponentMask mask = BuildMask(normalizedTypes);
+            return GetOrCreate(mask, normalizedTypes);
+        }
+
+        public Archetype GetOrCreate(ComponentMask mask)
+        {
+            ComponentType[] types = BuildTypesFromMask(mask);
+            return GetOrCreate(mask, types);
+        }
+
+        private Archetype GetOrCreate(ComponentMask mask, ComponentType[] normalizedTypes)
+        {
+            if (normalizedTypes == null)
+                throw new ArgumentNullException(nameof(normalizedTypes));
 
             if (_idsByMask.TryGetValue(mask, out int existingId))
                 return _archetypes[existingId];
@@ -77,6 +90,19 @@ namespace CyanMothUnityEcs
             for (int i = 0; i < types.Length; i++)
                 mask = mask.Add(types[i].Mask);
             return mask;
+        }
+
+        private static ComponentType[] BuildTypesFromMask(ComponentMask mask)
+        {
+            List<ComponentType> types = new List<ComponentType>();
+            for (int i = 0; i < TypeRegistry.Count; i++)
+            {
+                ComponentType type = TypeRegistry.GetByIndex(i);
+                if (mask.Contains(type.Index))
+                    types.Add(type);
+            }
+
+            return types.ToArray();
         }
     }
 }

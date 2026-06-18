@@ -4,6 +4,63 @@ namespace CyanMothUnityEcs
 {
     public unsafe sealed partial class World
     {
+        public void Add<T>(Entity entity, T component)
+            where T : unmanaged, IComponentData
+        {
+            ThrowIfDisposed();
+
+            ComponentType addedType = TypeRegistry.Get<T>();
+            Chunk* sourceChunk = GetEntityChunk(entity, out int sourceSlot, out Archetype sourceArchetype);
+
+            if (sourceArchetype.Has(addedType))
+            {
+                Set(entity, component);
+                return;
+            }
+
+            int targetId = sourceArchetype.AddEdges[addedType.Index];
+            Archetype targetArchetype;
+            if (targetId >= 0)
+            {
+                targetArchetype = _archetypes.GetById(targetId);
+            }
+            else
+            {
+                targetArchetype = _archetypes.GetOrCreate(sourceArchetype.Mask.Add(addedType.Mask));
+                sourceArchetype.AddEdges[addedType.Index] = targetArchetype.Id;
+                targetArchetype.RemoveEdges[addedType.Index] = sourceArchetype.Id;
+            }
+
+            MoveEntityToArchetype(entity, sourceArchetype, sourceChunk, sourceSlot, targetArchetype, addedType, &component);
+        }
+
+        public void Remove<T>(Entity entity)
+            where T : unmanaged, IComponentData
+        {
+            ThrowIfDisposed();
+
+            ComponentType removedType = TypeRegistry.Get<T>();
+            Chunk* sourceChunk = GetEntityChunk(entity, out int sourceSlot, out Archetype sourceArchetype);
+
+            if (!sourceArchetype.Has(removedType))
+                return;
+
+            int targetId = sourceArchetype.RemoveEdges[removedType.Index];
+            Archetype targetArchetype;
+            if (targetId >= 0)
+            {
+                targetArchetype = _archetypes.GetById(targetId);
+            }
+            else
+            {
+                targetArchetype = _archetypes.GetOrCreate(sourceArchetype.Mask.Remove(removedType.Index));
+                sourceArchetype.RemoveEdges[removedType.Index] = targetArchetype.Id;
+                targetArchetype.AddEdges[removedType.Index] = sourceArchetype.Id;
+            }
+
+            MoveEntityToArchetype(entity, sourceArchetype, sourceChunk, sourceSlot, targetArchetype, default, null);
+        }
+
         public void Destroy(Entity entity)
         {
             ThrowIfDisposed();
@@ -14,6 +71,79 @@ namespace CyanMothUnityEcs
             RemoveEntityAt(archetype, chunk, slot);
             _entities.Release(entity);
 
+            if (chunk->Count == 0)
+            {
+                RemoveFromFreeList(archetype, chunk);
+                UnlinkChunk(archetype, chunk);
+                _chunks.Free(chunk);
+                return;
+            }
+
+            if (wasFull)
+                AddToFreeList(archetype, chunk);
+        }
+
+        private void MoveEntityToArchetype(
+            Entity entity,
+            Archetype sourceArchetype,
+            Chunk* sourceChunk,
+            int sourceSlot,
+            Archetype targetArchetype,
+            ComponentType addedType,
+            void* addedData)
+        {
+            bool sourceWasFull = sourceChunk->Count == sourceChunk->Capacity;
+            Chunk* targetChunk = GetWritableChunk(targetArchetype);
+            int targetSlot = targetChunk->Count++;
+
+            WriteEntity(targetChunk, targetArchetype, targetSlot, entity);
+            CopySharedComponents(sourceArchetype, sourceChunk, sourceSlot, targetArchetype, targetChunk, targetSlot);
+
+            if (addedData != null && !addedType.IsTag)
+                WriteRawComponent(targetChunk, targetArchetype, targetSlot, addedType, addedData);
+
+            _entities.SetLocation(entity, new IntPtr(targetChunk), targetSlot, targetArchetype.Id);
+
+            if (targetChunk->Count == targetChunk->Capacity)
+                RemoveFromFreeList(targetArchetype, targetChunk);
+
+            RemoveEntityAt(sourceArchetype, sourceChunk, sourceSlot);
+            RecycleSourceChunkAfterMigration(sourceArchetype, sourceChunk, sourceWasFull);
+        }
+
+        private static void CopySharedComponents(
+            Archetype sourceArchetype,
+            Chunk* sourceChunk,
+            int sourceSlot,
+            Archetype targetArchetype,
+            Chunk* targetChunk,
+            int targetSlot)
+        {
+            for (int i = 0; i < sourceArchetype.Types.Length; i++)
+            {
+                ComponentType type = sourceArchetype.Types[i];
+                if (type.IsTag || !targetArchetype.Has(type))
+                    continue;
+
+                int sourceOffset = sourceArchetype.GetComponentOffset(type.Index);
+                int targetOffset = targetArchetype.GetComponentOffset(type.Index);
+                int stride = sourceArchetype.GetComponentStride(type.Index);
+                byte* source = (byte*)sourceChunk + sourceOffset + stride * sourceSlot;
+                byte* target = (byte*)targetChunk + targetOffset + stride * targetSlot;
+                UnsafeUtil.Copy(source, target, stride);
+            }
+        }
+
+        private static void WriteRawComponent(Chunk* chunk, Archetype archetype, int slot, ComponentType type, void* data)
+        {
+            int offset = archetype.GetComponentOffset(type.Index);
+            int stride = archetype.GetComponentStride(type.Index);
+            byte* target = (byte*)chunk + offset + stride * slot;
+            UnsafeUtil.Copy(data, target, stride);
+        }
+
+        private void RecycleSourceChunkAfterMigration(Archetype archetype, Chunk* chunk, bool wasFull)
+        {
             if (chunk->Count == 0)
             {
                 RemoveFromFreeList(archetype, chunk);

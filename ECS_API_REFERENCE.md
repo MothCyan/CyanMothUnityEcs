@@ -1151,11 +1151,56 @@ Tag 组件没有数据区，因此 Set Tag 会直接返回。
 
 ### 结构变更相关 API
 
-这一份 partial class 当前只实现立即销毁实体。
+这一份 partial class 当前实现立即结构变更：
 
-Add/Remove 组件迁移和 CommandBuffer 会在后续阶段接入。
+```text
+Add<T>
+Remove<T>
+Destroy
+```
+
+CommandBuffer 会在后续阶段接入。
 
 ### API
+
+#### `void Add<T>(Entity entity, T component)`
+
+给实体添加组件。
+
+如果实体已经拥有该组件，则退化为：
+
+```text
+Set<T>(entity, component)
+```
+
+如果实体没有该组件，则执行跨 Archetype 迁移：
+
+```text
+source Archetype
+-> targetMask = source.Mask + T
+-> 通过 AddEdges 或 ArchetypeStore 找目标 Archetype
+-> 移动实体到目标 Chunk
+-> 拷贝共有组件
+-> 写入新增组件
+-> 从源 Chunk swap-remove
+```
+
+#### `void Remove<T>(Entity entity)`
+
+从实体移除组件。
+
+如果实体没有该组件，直接返回。
+
+如果实体拥有该组件，则执行跨 Archetype 迁移：
+
+```text
+source Archetype
+-> targetMask = source.Mask - T
+-> 通过 RemoveEdges 或 ArchetypeStore 找目标 Archetype
+-> 移动实体到目标 Chunk
+-> 拷贝剩余共有组件
+-> 从源 Chunk swap-remove
+```
 
 #### `void Destroy(Entity entity)`
 
@@ -1170,6 +1215,43 @@ GetEntityChunk
 -> EntityStore.Release
 -> 如果 Chunk 变空：从链表移除并回收到 ChunkAllocator
 -> 如果 Chunk 原本已满且现在有空位：重新放回可写 Chunk 链表
+```
+
+#### `private void MoveEntityToArchetype(...)`
+
+跨 Archetype 迁移实体的核心函数。
+
+职责：
+
+```text
+在目标 Archetype 分配 slot
+写 Entity[]
+拷贝共有组件
+写新增组件
+更新 EntityStore
+从源 Chunk 删除旧 slot
+回收或更新源 Chunk 的 free 状态
+```
+
+#### `private static void CopySharedComponents(...)`
+
+把源 Archetype 和目标 Archetype 共有的组件数据从旧 Chunk 拷贝到新 Chunk。
+
+Tag 组件会跳过，因为它没有数据区。
+
+#### `private static void WriteRawComponent(...)`
+
+写入新增组件的原始字节。
+
+当前由 `Add<T>` 调用。
+
+#### `private void RecycleSourceChunkAfterMigration(...)`
+
+迁移后处理源 Chunk：
+
+```text
+如果源 Chunk 为空 -> 从 Archetype 链表移除并回收到 ChunkAllocator
+如果源 Chunk 原本已满 -> 现在有空位，重新放回 free list
 ```
 
 #### `private void RemoveEntityAt(Archetype archetype, Chunk* chunk, int slot)`
@@ -1739,6 +1821,24 @@ ArchetypeStore 版本号。
 -> 不存在则创建 ArchetypeLayout 和 Archetype
 ```
 
+#### `Archetype GetOrCreate(ComponentMask mask)`
+
+根据组件组合 mask 获取或创建 Archetype。
+
+当前主要给结构变更使用：
+
+```text
+Add<T>
+-> source.Mask.Add(type.Mask)
+-> ArchetypeStore.GetOrCreate(targetMask)
+
+Remove<T>
+-> source.Mask.Remove(type.Index)
+-> ArchetypeStore.GetOrCreate(targetMask)
+```
+
+内部会根据 `TypeRegistry` 中已注册的组件类型，把 mask 还原成有序 `ComponentType[]`。
+
 #### `Archetype GetById(int id)`
 
 根据 ArchetypeId 获取 Archetype。
@@ -2017,6 +2117,52 @@ ArchetypeStore 版本号。
 ### `Destroy_EmptyChunkCanBeReusedByLaterCreate`
 
 验证 Chunk 删除到空后会回收到分配器，后续创建实体仍能正常工作。
+
+---
+
+## `Assets/Scripts/ECS/Tests/WorldStructuralChangeTests.cs`
+
+测试 Add/Remove 组件导致的跨 Archetype 迁移。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+Health
+TestTag
+```
+
+### `AddComponent_MigratesToNewArchetypeAndKeepsOldData`
+
+验证添加新组件后：
+
+- 实体迁移到新 Archetype。
+- 旧组件数据保留。
+- 新组件数据写入正确。
+
+### `RemoveComponent_MigratesToNewArchetypeAndKeepsRemainingData`
+
+验证移除组件后：
+
+- 被移除组件不再存在。
+- 剩余组件数据保留。
+
+### `AddExistingComponent_BehavesAsSet`
+
+验证添加已存在组件时不会迁移，而是更新组件数据。
+
+### `RemoveMissingComponent_DoesNothing`
+
+验证移除不存在组件时不会破坏已有数据。
+
+### `AddTag_MigratesWithoutDataArea`
+
+验证添加 Tag 组件可以迁移 Archetype，但不需要写组件数据区。
+
+### `StructuralChange_SwapRemoveUpdatesMovedEntityLocation`
+
+验证结构迁移触发源 Chunk swap-remove 时，被移动实体的位置仍然正确。
 
 ---
 
