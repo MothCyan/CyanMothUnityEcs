@@ -1147,6 +1147,68 @@ Tag 组件没有数据区，因此 Set Tag 会直接返回。
 
 ---
 
+## `Assets/Scripts/ECS/Core/World.StructuralChanges.cs`
+
+### 结构变更相关 API
+
+这一份 partial class 当前只实现立即销毁实体。
+
+Add/Remove 组件迁移和 CommandBuffer 会在后续阶段接入。
+
+### API
+
+#### `void Destroy(Entity entity)`
+
+销毁一个实体。
+
+流程：
+
+```text
+GetEntityChunk
+-> 记录 Chunk 是否原本已满
+-> RemoveEntityAt
+-> EntityStore.Release
+-> 如果 Chunk 变空：从链表移除并回收到 ChunkAllocator
+-> 如果 Chunk 原本已满且现在有空位：重新放回可写 Chunk 链表
+```
+
+#### `private void RemoveEntityAt(Archetype archetype, Chunk* chunk, int slot)`
+
+从 Chunk 中删除指定 slot。
+
+如果删除的不是最后一个 slot，会执行 swap-remove：
+
+```text
+最后一个 Entity 复制到被删除 slot
+最后一行组件数据复制到被删除 slot
+更新被移动 Entity 的 EntityStore location
+Chunk.Count--
+```
+
+#### `private static Entity* GetEntityArray(Chunk* chunk, Archetype archetype)`
+
+根据 `ArchetypeLayout.EntityOffset` 找到 Chunk 内的 `Entity[]` 起始地址。
+
+#### `private static void MoveComponentRows(...)`
+
+把某一行组件数据从 `sourceSlot` 移动到 `targetSlot`。
+
+它会遍历 Archetype 的所有组件：
+
+```text
+Tag 组件跳过
+普通组件按 offset + stride * slot 定位
+UnsafeUtil.Copy 拷贝一行组件数据
+```
+
+#### `private static void UnlinkChunk(Archetype archetype, Chunk* chunk)`
+
+把一个 Chunk 从 Archetype 的 Chunk 双向链表中移除。
+
+当 Chunk 删除实体后变空时调用。
+
+---
+
 ## 三、测试脚本
 
 ## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
@@ -1918,6 +1980,43 @@ ArchetypeStore 版本号。
 ### `Get_MissingComponent_Throws`
 
 验证访问不存在的组件会抛出异常。
+
+---
+
+## `Assets/Scripts/ECS/Tests/WorldDestroyTests.cs`
+
+测试 `World.Destroy` 和 Chunk `swap-remove` 行为。
+
+### 内部测试组件 `Position`
+
+测试用位置组件。
+
+### 内部测试组件 `Health`
+
+测试用生命值组件。
+
+### `SetUp`
+
+每个测试前清空 `TypeRegistry`。
+
+### `Destroy_RemovesEntityAndInvalidatesVersion`
+
+验证实体销毁后：
+
+- `World.IsAlive` 返回 false。
+- 旧 Entity 句柄无法继续访问组件。
+
+### `Destroy_SwapRemoveUpdatesMovedEntityLocation`
+
+验证删除 Chunk 中间实体时：
+
+- 最后一个实体会搬到被删除 slot。
+- 被搬动实体的 EntityStore 位置会更新。
+- 被搬动实体仍然能通过 `Get<T>` 读到正确组件数据。
+
+### `Destroy_EmptyChunkCanBeReusedByLaterCreate`
+
+验证 Chunk 删除到空后会回收到分配器，后续创建实体仍能正常工作。
 
 ---
 
