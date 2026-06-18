@@ -1259,6 +1259,78 @@ Tag 组件没有数据区，因此会直接返回。
 
 ---
 
+## `Assets/Scripts/ECS/Core/World.CreateMany.cs`
+
+### 批量创建相关 API
+
+这一份 partial class 提供更顺手的批量创建入口。
+
+它的原则：
+
+```text
+便捷 API 可以更好用
+但最终仍然走 Archetype + Chunk
+不引入 Sparse Set
+不绕过 EntityStore
+```
+
+### 非分配版本
+
+#### `void CreateMany<T1>(T1[] c1, Entity[] entities)`
+
+批量创建单组件实体。
+
+特点：
+
+```text
+复用同一个 ComponentType
+复用同一个 Archetype
+把创建出的 Entity 写入调用方提供的数组
+```
+
+适合热路径或大量创建，因为它不额外分配 Entity 输出数组。
+
+#### `void CreateMany<T1, T2>(T1[] c1, T2[] c2, Entity[] entities)`
+
+批量创建双组件实体。
+
+所有组件数组长度必须一致。
+
+#### `void CreateMany<T1, T2, T3>(T1[] c1, T2[] c2, T3[] c3, Entity[] entities)`
+
+批量创建三组件实体。
+
+### 便捷分配版本
+
+#### `Entity[] CreateMany<T1>(T1[] c1)`
+
+批量创建单组件实体，并返回新分配的 Entity 数组。
+
+适合工具、初始化、小规模原型。
+
+#### `Entity[] CreateMany<T1, T2>(T1[] c1, T2[] c2)`
+
+批量创建双组件实体，并返回新分配的 Entity 数组。
+
+#### `Entity[] CreateMany<T1, T2, T3>(T1[] c1, T2[] c2, T3[] c3)`
+
+批量创建三组件实体，并返回新分配的 Entity 数组。
+
+### 内部校验
+
+#### `private static void ValidateCreateManyInputs<T>(...)`
+
+检查：
+
+```text
+组件数组不能为 null
+Entity 输出数组不能为 null
+所有组件数组长度一致
+Entity 输出数组长度足够
+```
+
+---
+
 ## `Assets/Scripts/ECS/Core/World.Access.cs`
 
 ### 随机访问相关 API
@@ -1778,6 +1850,91 @@ OnDestroy 释放顺序不明确
 注意：
 
 普通组件数据不需要在这里释放，因为组件数据由 `World` 和 `ChunkAllocator` 统一管理。
+
+---
+
+## `Assets/Scripts/ECS/Systems/QuerySystem.cs`
+
+### `QuerySystem<T1>`
+
+单组件 Query 系统模板。
+
+```csharp
+public abstract class QuerySystem<T1> : EcsSystem
+```
+
+它会在 `OnCreate` 时自动缓存：
+
+```text
+World.Query<T1>()
+```
+
+业务系统只需要实现：
+
+```csharp
+protected override void OnUpdate(float deltaTime, Query<T1> query)
+```
+
+### `QuerySystem<T1,T2>`
+
+双组件 Query 系统模板。
+
+它会自动缓存：
+
+```text
+World.Query<T1,T2>()
+```
+
+适合常见的移动、同步、状态更新系统。
+
+### `QuerySystem<T1,T2,T3>`
+
+三组件 Query 系统模板。
+
+它会自动缓存：
+
+```text
+World.Query<T1,T2,T3>()
+```
+
+### 属性
+
+#### `protected Query<...> Query`
+
+缓存好的 Query 句柄。
+
+子类可以在需要时访问它，但推荐直接使用 `OnUpdate` 参数里的 query。
+
+### 生命周期
+
+#### `protected sealed override void OnCreate()`
+
+模板内部固定流程：
+
+```text
+创建 Query
+调用 OnQueryCreate
+```
+
+这里用 sealed，避免子类忘记创建 Query。
+
+#### `protected virtual void OnQueryCreate()`
+
+Query 创建完成后的扩展点。
+
+业务系统如果还需要初始化别的状态，可以重写这里。
+
+#### `protected sealed override void OnUpdate(float deltaTime)`
+
+模板内部固定流程：
+
+```text
+调用 OnUpdate(deltaTime, Query)
+```
+
+#### `protected abstract void OnUpdate(float deltaTime, Query<...> query)`
+
+业务系统真正实现逻辑的地方。
 
 ---
 
@@ -3237,6 +3394,40 @@ Remove<T>
 
 ---
 
+## `Assets/Scripts/ECS/Tests/WorldCreateManyTests.cs`
+
+测试 `World.CreateMany` 批量创建 API。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+Health
+```
+
+### `CreateMany_OneComponent_WritesAllEntities`
+
+验证批量创建单组件实体后，每个 Entity 都存活，并且组件数据正确写入 Chunk。
+
+### `CreateMany_TwoComponents_WritesAllEntities`
+
+验证批量创建双组件实体后，两个组件都能正确读回。
+
+### `CreateMany_ThreeComponents_WritesAllEntities`
+
+验证批量创建三组件实体后，实体直接进入最终 Archetype。
+
+### `CreateMany_MismatchedComponentLengths_Throws`
+
+验证组件数组长度不一致时会抛出异常。
+
+### `CreateMany_OutputArrayTooSmall_Throws`
+
+验证输出 Entity 数组长度不足时会抛出异常。
+
+---
+
 ## `Assets/Scripts/ECS/Tests/WorldDestroyTests.cs`
 
 测试 `World.Destroy` 和 Chunk `swap-remove` 行为。
@@ -3445,6 +3636,32 @@ Update 时先执行 A，再执行 B
 
 ---
 
+## `Assets/Scripts/ECS/Tests/QuerySystemTests.cs`
+
+测试 `QuerySystem` 模板。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+Health
+```
+
+### `QuerySystem_OneComponent_CachesQueryAndUpdates`
+
+验证单组件 QuerySystem 能自动缓存 Query，并修改匹配实体。
+
+### `QuerySystem_TwoComponents_CachesQueryAndUpdates`
+
+验证双组件 QuerySystem 能自动缓存 Query，并执行移动类逻辑。
+
+### `QuerySystem_ThreeComponents_CachesQueryAndUpdates`
+
+验证三组件 QuerySystem 能自动缓存 Query，并同时访问三个组件。
+
+---
+
 ## `Assets/Scripts/ECS/Tests/UnityBridgeTests.cs`
 
 测试 Unity Bridge 最小链路。
@@ -3554,7 +3771,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 F 的 Debug & Benchmark 第一版：
+当前已经实现到阶段 G 的 Convenience API 第一版：
 
 ```text
 Component 类型身份
@@ -3581,21 +3798,26 @@ WorldStats
 World.GetStats
 EcsBenchmarkResult
 EcsBenchmark
+World.CreateMany
+QuerySystem<T1>
+QuerySystem<T1,T2>
+QuerySystem<T1,T2,T3>
 ```
 
 还没有实现：
 
 ```text
-Convenience API
 Advanced Optimization
 完整 Authoring
 SpriteRenderer Bridge
 批量渲染 Bridge
 Debug Window 可视化面板
 更细的系统耗时统计
+ArchetypePrefab
+更完整的便捷 Command API
 ```
 
-因此当前代码已经能跑通两条链路。
+因此当前代码已经能跑通四条链路。
 
 核心 ECS 链路：
 
@@ -3630,4 +3852,19 @@ EcsBenchmarkResult 记录耗时和统计
 后续用这些数据判断优化是否真的有效
 ```
 
-下一步建议进入阶段 G：Convenience API，先做 `CreateMany`、轻量模板和更顺手的 QuerySystem，但所有便捷 API 都必须落回当前高性能底层路径。
+Convenience API 链路：
+
+```text
+调用 World.CreateMany
+复用 ComponentType 和 Archetype
+连续 AllocateEntity
+写入 Chunk 组件数组
+返回或填充 Entity 输出数组
+
+继承 QuerySystem<T...>
+OnCreate 自动缓存 Query
+OnUpdate 直接拿 Query 参数写业务逻辑
+底层仍然走 QueryCache + ForEachChunk
+```
+
+下一步建议进入阶段 H：Advanced Optimization。优先不是直接上 Jobs/Burst，而是根据 Benchmark 数据先做 Query offset 缓存、CreateMany 更深度的 Chunk 批写、CommandBuffer 命令合并。
