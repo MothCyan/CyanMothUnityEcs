@@ -1617,6 +1617,285 @@ ForEach
 
 ---
 
+## `Assets/Scripts/ECS/Systems/EcsSystem.cs`
+
+### `EcsSystem`
+
+系统基类。
+
+```csharp
+public abstract class EcsSystem
+```
+
+它负责把一段业务逻辑包装成可以被 `SystemPipeline` 调度的对象。
+
+系统本身不保存组件数组，也不拥有实体数据。它只通过 `World` 去访问：
+
+```text
+Entity
+Component
+Query
+CommandBuffer
+```
+
+### 属性
+
+#### `public World World`
+
+当前系统所属的 World。
+
+用途：
+
+```text
+创建实体
+读写组件
+创建 Query
+记录 CommandBuffer 命令
+```
+
+这个属性在系统加入 `SystemPipeline` 后才有值。
+
+#### `public bool IsAttached`
+
+表示系统是否已经加入某个 `SystemPipeline`。
+
+第一版不允许同一个系统实例挂到多个管线里，因为那样会导致：
+
+```text
+World 指向不明确
+OnCreate 调用次数不明确
+OnDestroy 释放顺序不明确
+```
+
+### 内部 API
+
+#### `internal void Attach(World world)`
+
+把系统绑定到 World。
+
+执行流程：
+
+```text
+检查 world 不为空
+检查系统没有重复加入
+记录 World
+调用 OnCreate
+```
+
+只有 `SystemPipeline.Add` 会调用它。
+
+#### `internal void Update(float deltaTime)`
+
+执行一次系统更新。
+
+执行流程：
+
+```text
+检查系统已经绑定 World
+调用 OnUpdate(deltaTime)
+```
+
+只有 `SystemPipeline.Update` 会调用它。
+
+#### `internal void Detach()`
+
+从管线释放系统。
+
+执行流程：
+
+```text
+如果没有绑定，直接返回
+调用 OnDestroy
+清空 World
+```
+
+这里用 `finally` 清空 World，保证即使 `OnDestroy` 里抛异常，系统也不会继续持有旧 World。
+
+### 可重写 API
+
+#### `protected virtual void OnCreate()`
+
+系统加入管线时调用一次。
+
+适合做：
+
+```text
+缓存 Query
+初始化系统内部状态
+准备 Unity Bridge 引用
+```
+
+#### `protected abstract void OnUpdate(float deltaTime)`
+
+每帧更新入口。
+
+所有系统都必须实现它。
+
+适合做：
+
+```text
+执行 Query
+修改组件数据
+向 CommandBuffer 写结构变更命令
+```
+
+#### `protected virtual void OnDestroy()`
+
+管线释放系统时调用一次。
+
+适合释放系统自己持有的资源。
+
+注意：
+
+普通组件数据不需要在这里释放，因为组件数据由 `World` 和 `ChunkAllocator` 统一管理。
+
+---
+
+## `Assets/Scripts/ECS/Systems/SystemPipeline.cs`
+
+### `SystemPipeline`
+
+系统执行管线。
+
+```csharp
+public sealed class SystemPipeline : IDisposable
+```
+
+它负责三件事：
+
+```text
+保存系统顺序
+驱动系统每帧更新
+在每个系统后自动 World.Playback
+```
+
+### 字段
+
+#### `private readonly World _world`
+
+管线驱动的 World。
+
+所有加入管线的系统都会绑定到这个 World。
+
+#### `private readonly List<EcsSystem> _systems`
+
+系统列表。
+
+当前第一版按添加顺序执行。
+
+#### `private bool _disposed`
+
+管线是否已经释放。
+
+释放后不能继续 Add 或 Update。
+
+#### `private bool _isUpdating`
+
+管线当前是否正在执行 `Update`。
+
+用途：
+
+```text
+阻止在系统更新过程中动态添加系统
+```
+
+第一版先禁止这种行为，让执行顺序保持简单明确。
+
+### 构造函数
+
+#### `SystemPipeline(World world)`
+
+创建系统管线。
+
+参数：
+
+```text
+world：要被这条管线驱动的 World
+```
+
+### 属性
+
+#### `public int Count`
+
+当前系统数量。
+
+### API
+
+#### `TSystem Add<TSystem>() where TSystem : EcsSystem, new()`
+
+创建并加入一个系统。
+
+适合无构造参数系统：
+
+```csharp
+pipeline.Add<MovementSystem>();
+```
+
+#### `TSystem Add<TSystem>(TSystem system) where TSystem : EcsSystem`
+
+把已有系统实例加入管线。
+
+适合需要构造参数的系统：
+
+```csharp
+pipeline.Add(new SpawnSystem(config));
+```
+
+执行流程：
+
+```text
+检查管线未释放
+检查 system 不为空
+检查当前不在 Update 中
+system.Attach(world)
+加入 _systems
+```
+
+`system.Attach(world)` 会立刻触发系统的 `OnCreate`。
+
+#### `void Update(float deltaTime)`
+
+执行一帧系统逻辑。
+
+执行流程：
+
+```text
+标记 _isUpdating = true
+按顺序执行每个系统
+每个系统执行后 World.Playback
+最后标记 _isUpdating = false
+```
+
+为什么每个系统后都 Playback：
+
+```text
+系统 A 可以记录 Add/Remove/Destroy
+Playback 把结构变更应用到 Archetype/Chunk
+系统 B 查询时能看到系统 A 的结果
+```
+
+这就是第一版的安全点。
+
+#### `void Dispose()`
+
+释放管线。
+
+执行流程：
+
+```text
+倒序调用系统 Detach
+清空系统列表
+标记 disposed
+```
+
+#### `private void ThrowIfDisposed()`
+
+检查管线是否已经释放。
+
+释放后继续调用 `Add` 或 `Update` 会抛出 `ObjectDisposedException`。
+
+---
+
 ## 三、测试脚本
 
 ## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
@@ -2560,27 +2839,104 @@ Health
 
 ---
 
+## `Assets/Scripts/ECS/Tests/SystemPipelineTests.cs`
+
+测试 `EcsSystem` 和 `SystemPipeline`。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+```
+
+### `SetUp`
+
+每个测试前清空 `TypeRegistry` 和测试系统的事件记录。
+
+### `Add_CallsOnCreate`
+
+验证系统加入管线时：
+
+```text
+OnCreate 会被调用
+系统能拿到 World
+调用顺序被正确记录
+```
+
+### `UpdateOrder_IsAddOrder`
+
+验证系统按照 Add 顺序更新。
+
+例如：
+
+```text
+先 Add A
+再 Add B
+Update 时先执行 A，再执行 B
+```
+
+### `Update_PlaybackAfterEachSystem`
+
+验证每个系统执行后都会自动 `World.Playback()`。
+
+测试流程：
+
+```text
+系统 A 写入 Commands.Add
+管线自动 Playback
+系统 B 立刻能 Has/Get 到新组件
+```
+
+这证明 SystemPipeline 已经把 `CommandBuffer` 安全点串进完整执行链路。
+
+### `Dispose_CallsOnDestroyReverseOrder`
+
+验证管线释放时会倒序调用系统的 `OnDestroy`。
+
+---
+
 ## 四、当前阶段总结
 
-当前已经实现的是阶段 A 的地基层：
+当前已经实现到阶段 D 的安全执行层：
 
 ```text
 Component 类型身份
 Component 掩码
 Entity 句柄
 Entity 位置表
+UnsafeUtil
+ChunkAllocator
+Chunk Header
+ArchetypeLayout
+Archetype
+ArchetypeStore
+World.Create / Has / Get / Set
+World.Add / Remove / Destroy
+CommandBuffer / Playback
+QueryCache / Query / ForEachChunk
+EcsSystem / SystemPipeline
 ```
 
 还没有实现：
 
 ```text
-Chunk
-Archetype
-World.Create
-Query
-CommandBuffer
-SystemPipeline
 Unity Bridge
+Debug & Benchmark
+Convenience API
+Advanced Optimization
 ```
 
-因此当前代码只能验证 ECS 的身份系统和位置系统，还不能真正存储组件数据。
+因此当前代码已经能跑通一帧核心 ECS 链路：
+
+```text
+创建实体
+写入 Chunk
+系统执行
+Query 遍历
+CommandBuffer 记录结构变更
+Playback 应用结构变更
+下一个系统读取变更结果
+```
+
+下一步建议进入阶段 E：Unity 接入层，也就是实现 `EcsRunner` 和第一版 Unity Bridge。
