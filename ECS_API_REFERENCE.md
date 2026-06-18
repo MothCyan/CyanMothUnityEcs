@@ -1085,47 +1085,60 @@ Destroy
 
 ### `CommandBuffer`
 
-???????????
+延迟结构变更命令缓冲。
 
 ```csharp
 public unsafe sealed class CommandBuffer
 ```
 
-### ??????
+### 当前实现说明
 
-??????? typed delegate ??????? raw ?????
+当前版本使用结构化 raw 命令缓冲，不再为每条命令保存 `Action<World>`。
 
-????????
-
-```text
-Command[]????????
-byte[] payload?Add ?????????
-```
-
-???????
+命令分两块存储：
 
 ```text
-???????? Action<World> ??
-???? component ?????
-Playback ???????????
-Add<T> ????????????
+Command[]：固定大小命令头
+byte[] payload：Add 组件的原始字节数据
 ```
 
-### ??
+这样做的目的：
+
+```text
+避免每条命令创建 Action<World> 委托
+避免捕获 component 的闭包对象
+Playback 时按命令头顺序解释执行
+Add<T> 的组件数据以原始字节保存
+```
+
+### 合并规则
+
+当前在记录命令时做保守合并：
+
+```text
+同实体同组件 Add + Add -> 只保留最后一次 Add
+同实体同组件 Remove + Remove -> 只保留一次 Remove
+同实体同组件 Add + Remove -> 移除 pending Add，再保留 Remove
+同实体 Destroy -> 删除该实体之前所有 pending 命令，只保留 Destroy
+```
+
+这能减少 Playback 时的重复 Archetype 迁移。
+
+### 字段
 
 #### `private const int DefaultCommandCapacity`
 
-??????????? 64?
+默认命令头容量，当前为 64。
 
 #### `private const int DefaultPayloadCapacity`
 
-?? payload ???????? 1024?
+默认 payload 字节容量，当前为 1024。
 
 #### `private Command[] _commands`
 
-??????
+命令头数组。
 
-????????
+每条命令头保存：
 
 ```text
 Kind
@@ -1137,41 +1150,41 @@ PayloadSize
 
 #### `private byte[] _payload`
 
-?????????
+组件原始字节缓冲。
 
-?? `Add<T>` ????? Tag ???? payload?
+只有 `Add<T>` 且组件不是 Tag 时才会写 payload。
 
 #### `private int _count`
 
-????????????
+当前已经记录的命令数量。
 
 #### `private int _payloadBytes`
 
-?? payload ???????
+当前 payload 已使用字节数。
 
-### ??
+### 属性
 
 #### `public int Count`
 
-???????
+当前命令数量。
 
 #### `public int PayloadBytes`
 
-?? payload ???????
+当前 payload 已使用字节数。
 
-??????????????????
+它主要用于测试、调试和后续性能统计。
 
 ### API
 
 #### `CommandBuffer(int initialCapacity = DefaultCommandCapacity)`
 
-???????
+创建命令缓冲。
 
 #### `void Add<T>(Entity entity, T component)`
 
-?????????
+记录添加组件命令。
 
-???
+流程：
 
 ```text
 TypeRegistry.Get<T>
@@ -1179,64 +1192,80 @@ WritePayload
 Append CommandKind.Add
 ```
 
-??????????????? `Playback`?
+实际结构变更不会立即发生，要等 `Playback`。
 
 #### `void Remove<T>(Entity entity)`
 
-?????????
+记录移除组件命令。
 
-Remove ??? payload?????? TypeIndex?
+Remove 不需要 payload，只记录组件 TypeIndex。
 
 #### `void Destroy(Entity entity)`
 
-?????????
+记录销毁实体命令。
 
-Destroy ????? TypeIndex????? payload?
+Destroy 不需要组件 TypeIndex，也不需要 payload。
 
 #### `void Playback(World world)`
 
-????????????
+按记录顺序回放所有命令。
 
-???
+流程：
 
 ```text
 fixed payload byte[]
-?? Command[]
+遍历 Command[]
 Add -> world.AddRaw
 Remove -> world.RemoveRaw
 Destroy -> world.Destroy
-?? count ? payloadBytes
+清空 count 和 payloadBytes
 ```
 
 #### `void Clear()`
 
-?????????
+清空命令，不执行。
 
 #### `private static void Execute(World world, Command command, byte* payloadBase)`
 
-?????????
+解释执行单条命令。
 
 #### `private int WritePayload(ComponentType type, void* data)`
 
-? Add ?????? `_payload`?
+把 Add 组件数据写入 `_payload`。
 
-Tag ??????????? -1???? `PayloadBytes`?
+Tag 组件没有数据区，会返回 -1，不增加 `PayloadBytes`。
 
 #### `private void Append(Command command)`
 
-?????????
+把命令追加到数组。
 
-????????
+容量不够时扩容。
+
+#### `private int FindLastCommand(Entity entity, int componentTypeIndex)`
+
+从后往前查找同实体、同组件类型的 pending 命令。
+
+如果先遇到 Destroy，则停止查找，避免跨越销毁语义合并。
+
+#### `private void RemoveCommandsForEntity(Entity entity)`
+
+删除某个实体当前所有 pending 命令。
+
+`Destroy(entity)` 会调用它，让 Destroy 吞掉之前的 Add/Remove。
+
+#### `private void RemoveCommandAt(int index)`
+
+删除指定命令头，并把后面的命令前移。
 
 #### `private void EnsurePayloadCapacity(int requiredBytes)`
 
-?? payload ????????????
+确保 payload 缓冲足够容纳指定字节数。
 
 #### `private readonly struct Command`
 
-??????
+内部命令头。
 
-???????????????????????
+它只保存执行命令需要的元数据，不保存托管委托。
 
 ---
 
@@ -3782,6 +3811,22 @@ PayloadBytes 保持 0
 Playback 后实体拥有 Tag
 ```
 
+### `AddSameComponent_KeepsOnlyLastCommand`
+
+验证同实体同组件连续 Add 时，只保留最后一次 Add。
+
+### `RemoveSameComponent_KeepsSingleCommand`
+
+验证同实体同组件连续 Remove 时，只保留一条 Remove。
+
+### `AddThenRemoveSameComponent_CancelsPendingAdd`
+
+验证同实体同组件先 Add 再 Remove 时，会抵消 pending Add，并保留 Remove。
+
+### `Destroy_RemovesEarlierCommandsForSameEntity`
+
+验证 Destroy 会移除同实体之前所有未回放命令，只保留 Destroy。
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/QueryTests.cs`
@@ -4023,7 +4068,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第三项：
+当前已经实现到阶段 H 的 Advanced Optimization 第四项：
 
 ```text
 Component 类型身份
@@ -4058,6 +4103,7 @@ QueryArchetypeMatch
 Query offset 缓存
 CreateMany Chunk 批写优化
 CommandBuffer raw payload
+CommandBuffer 同实体命令合并
 ```
 
 还没有实现：
@@ -4070,7 +4116,6 @@ Debug Window 可视化面板
 更细的系统耗时统计
 ArchetypePrefab
 更完整的便捷 Command API
-CommandBuffer 同实体命令合并
 CommandBuffer 回放排序优化
 Enableable Component
 ChangeVersion 过滤
@@ -4168,4 +4213,21 @@ Destroy -> World.Destroy
 清空命令数和 payload 字节数
 ```
 
-下一步建议继续阶段 H：做 `CommandBuffer` 同实体命令合并，减少同一实体连续 Add/Remove/Destroy 造成的重复 Archetype 迁移。
+CommandBuffer 同实体命令合并链路：
+
+```text
+Add<T>
+  -> 查找同实体同组件最后一条 pending 命令
+  -> 如果是 Add，替换为最新 Add
+
+Remove<T>
+  -> 如果已有 Remove，跳过
+  -> 如果已有 Add，移除 pending Add
+  -> 追加 Remove
+
+Destroy
+  -> 删除同实体所有 pending 命令
+  -> 只追加 Destroy
+```
+
+下一步建议继续阶段 H：做 `Enableable Component` 或 `ChangeVersion`。前者能减少 Add/Remove 迁移，后者能让系统只扫变化过的 Chunk。

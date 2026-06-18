@@ -136,5 +136,78 @@ namespace CyanMothUnityEcs.Tests
                 Assert.IsTrue(world.Has<TestTag>(entity));
             }
         }
+
+        [Test]
+        public void AddSameComponent_KeepsOnlyLastCommand()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Health { Value = 1 });
+
+                world.Commands.Add(entity, new Health { Value = 2 });
+                world.Commands.Add(entity, new Health { Value = 3 });
+
+                Assert.AreEqual(1, world.Commands.Count);
+
+                world.Playback();
+
+                Assert.AreEqual(3, world.Get<Health>(entity).Value);
+            }
+        }
+
+        [Test]
+        public void RemoveSameComponent_KeepsSingleCommand()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+
+                world.Commands.Remove<Velocity>(entity);
+                world.Commands.Remove<Velocity>(entity);
+
+                Assert.AreEqual(1, world.Commands.Count);
+
+                world.Playback();
+
+                Assert.IsFalse(world.Has<Velocity>(entity));
+            }
+        }
+
+        [Test]
+        public void AddThenRemoveSameComponent_CancelsPendingAdd()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 });
+
+                world.Commands.Add(entity, new Velocity { X = 2 });
+                world.Commands.Remove<Velocity>(entity);
+
+                Assert.AreEqual(1, world.Commands.Count);
+
+                world.Playback();
+
+                Assert.IsFalse(world.Has<Velocity>(entity));
+            }
+        }
+
+        [Test]
+        public void Destroy_RemovesEarlierCommandsForSameEntity()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 });
+
+                world.Commands.Add(entity, new Velocity { X = 2 });
+                world.Commands.Add(entity, new Health { Value = 3 });
+                world.Commands.Destroy(entity);
+
+                Assert.AreEqual(1, world.Commands.Count);
+
+                world.Playback();
+
+                Assert.IsFalse(world.IsAlive(entity));
+            }
+        }
     }
 }

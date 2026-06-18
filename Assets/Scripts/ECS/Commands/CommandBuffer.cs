@@ -33,18 +33,40 @@ namespace CyanMothUnityEcs
         {
             ComponentType type = TypeRegistry.Get<T>();
             int payloadOffset = WritePayload(type, &component);
-            Append(new Command(CommandKind.Add, entity, type.Index, payloadOffset, type.Size));
+            int payloadSize = type.IsTag ? 0 : type.Size;
+            Command command = new Command(CommandKind.Add, entity, type.Index, payloadOffset, payloadSize);
+
+            int existingIndex = FindLastCommand(entity, type.Index);
+            if (existingIndex >= 0 && _commands[existingIndex].Kind == CommandKind.Add)
+            {
+                _commands[existingIndex] = command;
+                return;
+            }
+
+            Append(command);
         }
 
         public void Remove<T>(Entity entity)
             where T : unmanaged, IComponentData
         {
             ComponentType type = TypeRegistry.Get<T>();
+            int existingIndex = FindLastCommand(entity, type.Index);
+            if (existingIndex >= 0)
+            {
+                Command existing = _commands[existingIndex];
+                if (existing.Kind == CommandKind.Remove)
+                    return;
+
+                if (existing.Kind == CommandKind.Add)
+                    RemoveCommandAt(existingIndex);
+            }
+
             Append(new Command(CommandKind.Remove, entity, type.Index, payloadOffset: -1, payloadSize: 0));
         }
 
         public void Destroy(Entity entity)
         {
+            RemoveCommandsForEntity(entity);
             Append(new Command(CommandKind.Destroy, entity, componentTypeIndex: -1, payloadOffset: -1, payloadSize: 0));
         }
 
@@ -121,6 +143,45 @@ namespace CyanMothUnityEcs
                 Array.Resize(ref _commands, _commands.Length * 2);
 
             _commands[_count++] = command;
+        }
+
+        private int FindLastCommand(Entity entity, int componentTypeIndex)
+        {
+            for (int i = _count - 1; i >= 0; i--)
+            {
+                Command command = _commands[i];
+                if (command.Entity != entity)
+                    continue;
+
+                if (command.Kind == CommandKind.Destroy)
+                    return -1;
+
+                if (command.ComponentTypeIndex == componentTypeIndex)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private void RemoveCommandsForEntity(Entity entity)
+        {
+            for (int i = _count - 1; i >= 0; i--)
+            {
+                if (_commands[i].Entity == entity)
+                    RemoveCommandAt(i);
+            }
+        }
+
+        private void RemoveCommandAt(int index)
+        {
+            if ((uint)index >= _count)
+                throw new ArgumentOutOfRangeException(nameof(index), index, "命令索引超出范围。");
+
+            int moveCount = _count - index - 1;
+            if (moveCount > 0)
+                Array.Copy(_commands, index + 1, _commands, index, moveCount);
+
+            _commands[--_count] = default;
         }
 
         private void EnsurePayloadCapacity(int requiredBytes)
