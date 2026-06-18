@@ -127,5 +127,35 @@ namespace CyanMothUnityEcs.Tests
                 Assert.AreEqual(22, world.Get<Position>(second).X);
             }
         }
+
+        [Test]
+        public void Query_SameMaskDifferentOrder_UsesCorrectCachedOffsets()
+        {
+            using (World world = new World())
+            {
+                world.Create(new Position { X = 3 }, new Velocity { X = 5 });
+
+                float positionFirst = 0;
+                float velocitySecond = 0;
+                world.Query<Position, Velocity>().ForEachChunk((Entity* entities, Position* positions, Velocity* velocities, int count) =>
+                {
+                    positionFirst = positions[0].X;
+                    velocitySecond = velocities[0].X;
+                });
+
+                float velocityFirst = 0;
+                float positionSecond = 0;
+                world.Query<Velocity, Position>().ForEachChunk((Entity* entities, Velocity* velocities, Position* positions, int count) =>
+                {
+                    velocityFirst = velocities[0].X;
+                    positionSecond = positions[0].X;
+                });
+
+                Assert.AreEqual(3, positionFirst);
+                Assert.AreEqual(5, velocitySecond);
+                Assert.AreEqual(5, velocityFirst);
+                Assert.AreEqual(3, positionSecond);
+            }
+        }
     }
 }

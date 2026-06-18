@@ -8,7 +8,7 @@ namespace CyanMothUnityEcs
             ThrowIfDisposed();
 
             ComponentType t1 = TypeRegistry.Get<T1>();
-            int queryId = _queryCache.GetOrCreate(t1.Mask, ComponentMask.Empty);
+            int queryId = _queryCache.GetOrCreate(t1.Mask, ComponentMask.Empty, t1.Index);
             return new Query<T1>(this, queryId);
         }
 
@@ -21,7 +21,7 @@ namespace CyanMothUnityEcs
             ComponentType t1 = TypeRegistry.Get<T1>();
             ComponentType t2 = TypeRegistry.Get<T2>();
             ComponentMask include = t1.Mask.Add(t2.Mask);
-            int queryId = _queryCache.GetOrCreate(include, ComponentMask.Empty);
+            int queryId = _queryCache.GetOrCreate(include, ComponentMask.Empty, t1.Index, t2.Index);
             return new Query<T1, T2>(this, queryId);
         }
 
@@ -36,25 +36,23 @@ namespace CyanMothUnityEcs
             ComponentType t2 = TypeRegistry.Get<T2>();
             ComponentType t3 = TypeRegistry.Get<T3>();
             ComponentMask include = t1.Mask.Add(t2.Mask).Add(t3.Mask);
-            int queryId = _queryCache.GetOrCreate(include, ComponentMask.Empty);
+            int queryId = _queryCache.GetOrCreate(include, ComponentMask.Empty, t1.Index, t2.Index, t3.Index);
             return new Query<T1, T2, T3>(this, queryId);
         }
 
         internal void ForEachChunk<T1>(int queryId, ChunkAction<T1> action)
             where T1 : unmanaged, IComponentData
         {
-            ComponentType t1 = TypeRegistry.Get<T1>();
-            foreach (int archetypeId in _queryCache.GetMatchingArchetypes(queryId))
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
             {
-                Archetype archetype = _archetypes.GetById(archetypeId);
-                int o1 = archetype.GetComponentOffset(t1.Index);
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
 
                 for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
                 {
                     if (chunk->Count == 0)
                         continue;
 
-                    action(GetEntityArray(chunk, archetype), (T1*)((byte*)chunk + o1), chunk->Count);
+                    action(GetEntityArray(chunk, archetype), (T1*)((byte*)chunk + match.Offset1), chunk->Count);
                 }
             }
         }
@@ -63,13 +61,9 @@ namespace CyanMothUnityEcs
             where T1 : unmanaged, IComponentData
             where T2 : unmanaged, IComponentData
         {
-            ComponentType t1 = TypeRegistry.Get<T1>();
-            ComponentType t2 = TypeRegistry.Get<T2>();
-            foreach (int archetypeId in _queryCache.GetMatchingArchetypes(queryId))
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
             {
-                Archetype archetype = _archetypes.GetById(archetypeId);
-                int o1 = archetype.GetComponentOffset(t1.Index);
-                int o2 = archetype.GetComponentOffset(t2.Index);
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
 
                 for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
                 {
@@ -78,8 +72,8 @@ namespace CyanMothUnityEcs
 
                     action(
                         GetEntityArray(chunk, archetype),
-                        (T1*)((byte*)chunk + o1),
-                        (T2*)((byte*)chunk + o2),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
                         chunk->Count);
                 }
             }
@@ -90,15 +84,9 @@ namespace CyanMothUnityEcs
             where T2 : unmanaged, IComponentData
             where T3 : unmanaged, IComponentData
         {
-            ComponentType t1 = TypeRegistry.Get<T1>();
-            ComponentType t2 = TypeRegistry.Get<T2>();
-            ComponentType t3 = TypeRegistry.Get<T3>();
-            foreach (int archetypeId in _queryCache.GetMatchingArchetypes(queryId))
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
             {
-                Archetype archetype = _archetypes.GetById(archetypeId);
-                int o1 = archetype.GetComponentOffset(t1.Index);
-                int o2 = archetype.GetComponentOffset(t2.Index);
-                int o3 = archetype.GetComponentOffset(t3.Index);
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
 
                 for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
                 {
@@ -107,9 +95,9 @@ namespace CyanMothUnityEcs
 
                     action(
                         GetEntityArray(chunk, archetype),
-                        (T1*)((byte*)chunk + o1),
-                        (T2*)((byte*)chunk + o2),
-                        (T3*)((byte*)chunk + o3),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        (T3*)((byte*)chunk + match.Offset3),
                         chunk->Count);
                 }
             }

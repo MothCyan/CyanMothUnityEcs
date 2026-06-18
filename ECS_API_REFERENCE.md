@@ -1642,9 +1642,15 @@ ChunkAction<T1,T2,T3>
 
 ### `QueryCache`
 
-缓存 Query 命中的 Archetype 列表。
+缓存 Query 命中的 Archetype 列表和组件偏移。
 
 它避免每次执行 Query 都重新扫描所有 Archetype。
+
+当前还会避免每次遍历时重复调用：
+
+```text
+Archetype.GetComponentOffset
+```
 
 ### 字段
 
@@ -1656,30 +1662,88 @@ QueryCache 依赖的 ArchetypeStore。
 
 所有 Query 记录。
 
+### 内部结构
+
+#### `QueryArchetypeMatch`
+
+单个 Query 命中的 Archetype 记录。
+
+字段：
+
+```text
+ArchetypeId
+Offset1
+Offset2
+Offset3
+```
+
+它的作用是把“这个 Query 在这个 Archetype 中该从哪里读组件数组”提前算好。
+
+#### `QueryRecord`
+
+单个 Query 的缓存记录。
+
+字段：
+
+```text
+Include
+Exclude
+ComponentTypeIndices
+CachedArchetypeVersion
+Matches
+```
+
+`ComponentTypeIndices` 很重要：
+
+同一个组件组合 mask 可以对应不同 Query 泛型顺序。
+
+例如：
+
+```text
+Query<Position, Velocity>
+Query<Velocity, Position>
+```
+
+它们的 include mask 一样，但 Offset1/Offset2 的含义相反，不能复用同一条缓存记录。
+
 ### API
 
-#### `int GetOrCreate(ComponentMask include, ComponentMask exclude)`
+#### `int GetOrCreate(ComponentMask include, ComponentMask exclude, params int[] componentTypeIndices)`
 
-根据 include/exclude mask 获取 QueryId。
+根据 include/exclude mask 和组件顺序获取 QueryId。
 
 如果不存在则创建新 QueryRecord 并立刻刷新。
 
-#### `int[] GetMatchingArchetypes(int queryId)`
+#### `QueryArchetypeMatch[] GetMatchingArchetypes(int queryId)`
 
-获取该 Query 命中的 ArchetypeId 列表。
+获取该 Query 命中的 Archetype 匹配记录。
 
 如果 ArchetypeStore.Version 变化，会自动刷新缓存。
 
 #### `private void Refresh(int queryId)`
 
-重新扫描所有 Archetype：
+重新扫描所有 Archetype，并计算 offset：
 
 ```text
 archetype.Mask.ContainsAll(include)
 并且不与 exclude 相交
+计算 Offset1 / Offset2 / Offset3
+写入 Matches
 ```
 
 当前公开 API 还没有 `Without<T>`，所以 exclude 暂时只使用空 mask。
+
+#### `private static int GetOffset(...)`
+
+根据组件类型编号获取该组件在当前 Archetype 的 Chunk 偏移。
+
+如果 Query 组件数量不足 3 个，多余 offset 使用 `ArchetypeLayout.MissingOffset`。
+
+#### `private static bool SameComponentTypes(...)`
+
+比较两个 Query 的组件类型顺序是否完全一致。
+
+这是为了防止相同 mask、不同泛型顺序的 Query 误用 offset 缓存。
 
 ---
 
@@ -3577,6 +3641,19 @@ Health
 
 验证 ForEachChunk 拿到的是 Chunk 内真实组件指针，修改后可以通过 `World.Get<T>` 读回。
 
+### `Query_SameMaskDifferentOrder_UsesCorrectCachedOffsets`
+
+验证相同组件组合、不同 Query 泛型顺序时，offset 缓存不会串用。
+
+例如：
+
+```text
+Query<Position, Velocity>
+Query<Velocity, Position>
+```
+
+它们命中的 Archetype 一样，但组件数组参数顺序不同。
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/SystemPipelineTests.cs`
@@ -3771,7 +3848,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 G 的 Convenience API 第一版：
+当前已经实现到阶段 H 的 Advanced Optimization 第一项：
 
 ```text
 Component 类型身份
@@ -3802,12 +3879,13 @@ World.CreateMany
 QuerySystem<T1>
 QuerySystem<T1,T2>
 QuerySystem<T1,T2,T3>
+QueryArchetypeMatch
+Query offset 缓存
 ```
 
 还没有实现：
 
 ```text
-Advanced Optimization
 完整 Authoring
 SpriteRenderer Bridge
 批量渲染 Bridge
@@ -3815,6 +3893,11 @@ Debug Window 可视化面板
 更细的系统耗时统计
 ArchetypePrefab
 更完整的便捷 Command API
+CreateMany Chunk 批写优化
+CommandBuffer 命令合并
+Enableable Component
+ChangeVersion 过滤
+Jobs/Burst
 ```
 
 因此当前代码已经能跑通四条链路。
@@ -3867,4 +3950,16 @@ OnUpdate 直接拿 Query 参数写业务逻辑
 底层仍然走 QueryCache + ForEachChunk
 ```
 
-下一步建议进入阶段 H：Advanced Optimization。优先不是直接上 Jobs/Burst，而是根据 Benchmark 数据先做 Query offset 缓存、CreateMany 更深度的 Chunk 批写、CommandBuffer 命令合并。
+Query offset 缓存链路：
+
+```text
+World.Query<T...>
+传入 include mask 和组件类型顺序
+QueryCache.GetOrCreate
+刷新时匹配 Archetype
+同时计算 Offset1/Offset2/Offset3
+ForEachChunk 直接使用缓存 offset
+避免每次遍历重复 GetComponentOffset
+```
+
+下一步建议继续阶段 H：优先做 `CreateMany` 的 Chunk 批写优化，让批量创建不只是少写循环，而是真的按 Chunk 连续填充。
