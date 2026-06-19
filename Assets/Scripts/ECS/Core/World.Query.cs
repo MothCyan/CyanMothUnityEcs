@@ -71,6 +71,36 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachWrite<T1, TWrite>(int queryId, QueryAction<T1> action)
+            where T1 : unmanaged, IComponentData
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType writeType = GetWriteType<TWrite>(TypeRegistry.Get<T1>());
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, writeType);
+                }
+            }
+        }
+
         internal void ForEachReadOnly<T1>(int queryId, ReadOnlyQueryAction<T1> action)
             where T1 : unmanaged, IComponentData
         {
@@ -123,6 +153,38 @@ namespace CyanMothUnityEcs
                     }
 
                     MarkComponentChanged(chunk, archetype, t1);
+                }
+            }
+        }
+
+        internal void ForEachChangedWrite<T1, TChanged, TWrite>(int queryId, int sinceVersion, QueryAction<T1> action)
+            where T1 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+            ComponentType writeType = GetWriteType<TWrite>(TypeRegistry.Get<T1>());
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, writeType);
                 }
             }
         }
@@ -188,6 +250,40 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachWrite<T1, T2, TWrite>(int queryId, QueryAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType writeType = GetWriteType<TWrite>(t1, t2);
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, writeType);
+                }
+            }
+        }
+
         internal void ForEachReadOnly<T1, T2>(int queryId, ReadOnlyQueryAction<T1, T2> action)
             where T1 : unmanaged, IComponentData
             where T2 : unmanaged, IComponentData
@@ -246,6 +342,42 @@ namespace CyanMothUnityEcs
 
                     MarkComponentChanged(chunk, archetype, t1);
                     MarkComponentChanged(chunk, archetype, t2);
+                }
+            }
+        }
+
+        internal void ForEachChangedWrite<T1, T2, TChanged, TWrite>(int queryId, int sinceVersion, QueryAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType writeType = GetWriteType<TWrite>(t1, t2);
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, writeType);
                 }
             }
         }
@@ -317,6 +449,43 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachWrite<T1, T2, T3, TWrite>(int queryId, QueryAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType t3 = TypeRegistry.Get<T3>();
+            ComponentType writeType = GetWriteType<TWrite>(t1, t2, t3);
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    T3* c3 = (T3*)((byte*)chunk + match.Offset3);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, writeType);
+                }
+            }
+        }
+
         internal void ForEachReadOnly<T1, T2, T3>(int queryId, ReadOnlyQueryAction<T1, T2, T3> action)
             where T1 : unmanaged, IComponentData
             where T2 : unmanaged, IComponentData
@@ -381,6 +550,45 @@ namespace CyanMothUnityEcs
                     MarkComponentChanged(chunk, archetype, t1);
                     MarkComponentChanged(chunk, archetype, t2);
                     MarkComponentChanged(chunk, archetype, t3);
+                }
+            }
+        }
+
+        internal void ForEachChangedWrite<T1, T2, T3, TChanged, TWrite>(int queryId, int sinceVersion, QueryAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType t3 = TypeRegistry.Get<T3>();
+            ComponentType writeType = GetWriteType<TWrite>(t1, t2, t3);
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    T3* c3 = (T3*)((byte*)chunk + match.Offset3);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, writeType);
                 }
             }
         }
@@ -811,6 +1019,36 @@ namespace CyanMothUnityEcs
 
             int changedSlot = archetype.GetTypeSlot(changedType.Index);
             return changedSlot >= 0 && chunk->ChangeVersions[changedSlot] > sinceVersion;
+        }
+
+        private static ComponentType GetWriteType<TWrite>(ComponentType t1)
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType writeType = TypeRegistry.Get<TWrite>();
+            if (writeType.Index == t1.Index)
+                return writeType;
+
+            throw new InvalidOperationException($"Write component {writeType.ManagedType.Name} is not part of this query.");
+        }
+
+        private static ComponentType GetWriteType<TWrite>(ComponentType t1, ComponentType t2)
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType writeType = TypeRegistry.Get<TWrite>();
+            if (writeType.Index == t1.Index || writeType.Index == t2.Index)
+                return writeType;
+
+            throw new InvalidOperationException($"Write component {writeType.ManagedType.Name} is not part of this query.");
+        }
+
+        private static ComponentType GetWriteType<TWrite>(ComponentType t1, ComponentType t2, ComponentType t3)
+            where TWrite : unmanaged, IComponentData
+        {
+            ComponentType writeType = TypeRegistry.Get<TWrite>();
+            if (writeType.Index == t1.Index || writeType.Index == t2.Index || writeType.Index == t3.Index)
+                return writeType;
+
+            throw new InvalidOperationException($"Write component {writeType.ManagedType.Name} is not part of this query.");
         }
 
         private static bool IsSlotEnabledForQuery(QueryArchetypeMatch match, Chunk* chunk, Archetype archetype, int slot)

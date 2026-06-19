@@ -1953,11 +1953,25 @@ QueryCache.GetMatchingArchetypes
 
 它同样使用缓存的 slot 判断 enableable 状态，但不会标记 ChangeVersion。
 
+#### `internal void ForEachWrite<T1, TWrite>(...)`
+
+执行单组件逐实体“指定写入组件”遍历。
+
+`TWrite` 必须是当前 Query 中的组件类型。回调仍然拿到 `ref` 参数，方便用户按统一写法处理数据，但遍历结束后只标记 `TWrite` 的 ChangeVersion。
+
+这个 API 用来减少保守误标：比如 Query 读 `Position + Velocity`，但本帧只写 `Position`，就不应该把 `Velocity` 也标成变化。
+
 #### `internal void ForEachChanged<T1, TChanged>(...)`
 
 执行单组件逐实体 Changed 遍历。
 
 先按 Chunk ChangeVersion 跳过未变化 Chunk，再按 enabled slot 过滤实体。
+
+#### `internal void ForEachChangedWrite<T1, TChanged, TWrite>(...)`
+
+执行单组件 Changed 遍历，同时只把 `TWrite` 标记为写入变化。
+
+它先用 `TChanged` 做过滤，再用 `TWrite` 做写入标记。两个类型可以相同，也可以不同。
 
 #### `internal void ForEachChangedReadOnly<T1, TChanged>(...)`
 
@@ -1971,9 +1985,19 @@ QueryCache.GetMatchingArchetypes
 
 执行双组件逐实体只读遍历。
 
+#### `internal void ForEachWrite<T1, T2, TWrite>(...)`
+
+执行双组件逐实体“指定写入组件”遍历。
+
+常见用法是 `Query<Position, Velocity>().ForEachWrite<Position>(...)`：`Velocity` 可以参与计算，但只有 `Position` 的 Chunk ChangeVersion 会刷新。
+
 #### `internal void ForEachChanged<T1, T2, TChanged>(...)`
 
 执行双组件逐实体 Changed 遍历。
+
+#### `internal void ForEachChangedWrite<T1, T2, TChanged, TWrite>(...)`
+
+执行双组件 Changed 遍历，同时只标记 `TWrite` 的 ChangeVersion。
 
 #### `internal void ForEachChangedReadOnly<T1, T2, TChanged>(...)`
 
@@ -1987,9 +2011,17 @@ QueryCache.GetMatchingArchetypes
 
 执行三组件逐实体只读遍历。
 
+#### `internal void ForEachWrite<T1, T2, T3, TWrite>(...)`
+
+执行三组件逐实体“指定写入组件”遍历。
+
 #### `internal void ForEachChanged<T1, T2, T3, TChanged>(...)`
 
 执行三组件逐实体 Changed 遍历。
+
+#### `internal void ForEachChangedWrite<T1, T2, T3, TChanged, TWrite>(...)`
+
+执行三组件 Changed 遍历，同时只标记 `TWrite` 的 ChangeVersion。
 
 #### `internal void ForEachChangedReadOnly<T1, T2, T3, TChanged>(...)`
 
@@ -2396,6 +2428,41 @@ ForEach
 
 逐实体 `ForEach` 会自动跳过 disabled 的 enableable 组件实体。
 
+#### `ForEachWrite<TWrite>(...)`
+
+易用版逐实体遍历，但显式声明“本次只写哪个组件”。
+
+示例：
+
+```csharp
+world.Query<Position, Velocity>().ForEachWrite<Position>(
+    (Entity entity, ref Position position, ref Velocity velocity) =>
+    {
+        position.X += velocity.X;
+        position.Y += velocity.Y;
+    });
+```
+
+含义：
+
+```text
+Position 和 Velocity 都在 Query 中
+回调里两个组件仍然都是 ref，写法保持简单
+用户声明 TWrite = Position
+遍历结束后只刷新 Position 的 ChangeVersion
+Velocity 不会被误认为发生变化
+```
+
+适用场景：
+
+```text
+移动系统：读 Velocity，写 Position
+生命恢复系统：读 RegenRate，写 Health
+同步系统：读 ECS 数据，写某个同步状态组件
+```
+
+如果 `TWrite` 不属于当前 Query，会直接抛出异常，避免用户误以为版本过滤已经生效。
+
 #### `ForEachReadOnly(...)`
 
 易用版只读逐实体遍历。
@@ -2491,6 +2558,31 @@ world.Query<Position, Velocity>().ForEachChanged<Position>(
 它是可写遍历，回调执行后会保守更新 Query 中组件的 ChangeVersion。
 
 逐实体 `ForEachChanged` 会自动跳过 disabled 的 enableable 组件实体。
+
+#### `ForEachChangedWrite<TChanged, TWrite>(int sinceVersion, ...)`
+
+Changed Query 的指定写入版。
+
+示例：
+
+```csharp
+world.Query<Position, Velocity>().ForEachChangedWrite<Position, Velocity>(
+    LastSystemVersion,
+    (Entity entity, ref Position position, ref Velocity velocity) =>
+    {
+        velocity.X = position.X * 0.1f;
+    });
+```
+
+含义：
+
+```text
+TChanged = Position：只处理 Position 变化过的 Chunk
+TWrite = Velocity：回调执行后只标记 Velocity 变化
+Position 不会因为这次读取再次刷新 ChangeVersion
+```
+
+这对链式系统很重要：A 系统写 `Position`，B 系统发现 `Position` 变化后写 `Velocity`。如果 B 又把 `Position` 标成变化，后面的系统就可能每帧重复处理同一批 Chunk。
 
 #### `ForEachChangedReadOnly<TChanged>(int sinceVersion, ...)`
 
@@ -4897,7 +4989,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第十三项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十四项：
 
 ```text
 Component 类型身份
@@ -4942,6 +5034,7 @@ LastSystemVersion
 Enableable Component
 EnabledChunkAction
 Query slot 缓存
+Query 指定写入组件
 ```
 
 还没有实现：
@@ -5119,6 +5212,22 @@ World.ForEachChunkReadOnly 执行 Chunk 遍历
 不会污染 Changed Query 的后续过滤结果
 ```
 
+Query 指定写入组件链路：
+
+```text
+用户调用 ForEachWrite<TWrite>
+World 校验 TWrite 必须属于当前 Query
+Query 仍然使用缓存 offset 和 slot 做热循环遍历
+回调执行后只调用 MarkComponentChanged(chunk, archetype, TWrite)
+其他参与读取的组件不会被刷新 ChangeVersion
+
+用户调用 ForEachChangedWrite<TChanged, TWrite>
+先用 TChanged 的 Chunk ChangeVersion 做过滤
+命中后执行回调
+最后只把 TWrite 标记为变化
+避免 Changed Query 链路因为“读了某组件”而反复触发
+```
+
 LastSystemVersion 链路：
 
 ```text
@@ -5155,4 +5264,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续阶段 H：做更细粒度的 Query 写权限声明，或做 CommandBuffer 回放排序优化。前者能进一步减少 ChangeVersion 的保守误标，后者能降低大量结构变更回放时的随机迁移成本。
+下一步建议继续阶段 H：做 CommandBuffer 回放排序优化，或做 Query 多写入组件声明。前者能降低大量结构变更回放时的随机迁移成本，后者适合一个系统同时写两个以上组件但仍不想保守标记整个 Query 的场景。

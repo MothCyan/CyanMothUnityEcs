@@ -1,3 +1,5 @@
+using System;
+
 namespace CyanMothUnityEcs
 {
     public unsafe sealed partial class World

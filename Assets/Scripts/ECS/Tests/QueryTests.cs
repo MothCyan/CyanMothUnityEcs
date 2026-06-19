@@ -260,6 +260,73 @@ namespace CyanMothUnityEcs.Tests
         }
 
         [Test]
+        public void ForEachWrite_ChangesOnlyDeclaredComponent()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+                int positionBefore = world.GetChangeVersion<Position>(entity);
+                int velocityBefore = world.GetChangeVersion<Velocity>(entity);
+
+                world.Query<Position, Velocity>().ForEachWrite<Position>((Entity _, ref Position position, ref Velocity velocity) =>
+                {
+                    position.X += velocity.X;
+                });
+
+                Assert.Greater(world.GetChangeVersion<Position>(entity), positionBefore);
+                Assert.AreEqual(velocityBefore, world.GetChangeVersion<Velocity>(entity));
+                Assert.AreEqual(3, world.Get<Position>(entity).X);
+            }
+        }
+
+        [Test]
+        public void ForEachWrite_InvalidWriteComponentThrows()
+        {
+            using (World world = new World())
+            {
+                world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+
+                Assert.Throws<System.InvalidOperationException>(() =>
+                    world.Query<Position, Velocity>().ForEachWrite<Health>((Entity _, ref Position position, ref Velocity velocity) =>
+                    {
+                    }));
+            }
+        }
+
+        [Test]
+        public void ForEachChangedWrite_DoesNotRefreshChangedComponentWhenOnlyOtherComponentWritten()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+                int sinceVersion = 0;
+
+                int count = 0;
+                world.Query<Position, Velocity>().ForEachChangedWrite<Position, Velocity>(
+                    sinceVersion,
+                    (Entity _, ref Position position, ref Velocity velocity) =>
+                    {
+                        count++;
+                        velocity.X += position.X;
+                    });
+
+                Assert.AreEqual(1, count);
+                Assert.AreEqual(3, world.Get<Velocity>(entity).X);
+
+                sinceVersion = world.ChangeVersion;
+                count = 0;
+                world.Query<Position, Velocity>().ForEachChangedReadOnly<Position>(
+                    sinceVersion,
+                    (Entity _, in Position position, in Velocity velocity) =>
+                    {
+                        count++;
+                    });
+
+                Assert.AreEqual(0, count);
+            }
+        }
+
+        [Test]
         public void ForEachChangedReadOnly_DoesNotCauseRepeatedMatch()
         {
             using (World world = new World())
