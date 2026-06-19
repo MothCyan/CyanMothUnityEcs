@@ -2290,6 +2290,25 @@ CommandBuffer
 
 这个属性在系统加入 `SystemPipeline` 后才有值。
 
+#### `public int LastSystemVersion`
+
+这个系统上一次完整更新结束时，World 的 `ChangeVersion`。
+
+它的作用是让系统不用自己保存 `sinceVersion`：
+
+```csharp
+_query.ForEachChangedReadOnly<Position>(
+    LastSystemVersion,
+    (Entity entity, in Position position) =>
+    {
+        // 只处理这个系统上次运行后变化过的 Position Chunk
+    });
+```
+
+第一次运行时它是 0。
+
+每次系统执行并完成 `World.Playback()` 后，`SystemPipeline` 会把它更新成当前 `World.ChangeVersion`。
+
 #### `public bool IsAttached`
 
 表示系统是否已经加入某个 `SystemPipeline`。
@@ -2331,6 +2350,19 @@ OnDestroy 释放顺序不明确
 ```
 
 只有 `SystemPipeline.Update` 会调用它。
+
+#### `internal void CommitVersion()`
+
+提交当前系统处理到的 World 版本。
+
+执行流程：
+
+```text
+读取 World.ChangeVersion
+写入 LastSystemVersion
+```
+
+只有 `SystemPipeline.Update` 会在系统执行和 Playback 之后调用它。
 
 #### `internal void Detach()`
 
@@ -2487,6 +2519,7 @@ public sealed class SystemPipeline : IDisposable
 保存系统顺序
 驱动系统每帧更新
 在每个系统后自动 World.Playback
+提交每个系统的 LastSystemVersion
 ```
 
 ### 字段
@@ -2583,6 +2616,7 @@ system.Attach(world)
 标记 _isUpdating = true
 按顺序执行每个系统
 每个系统执行后 World.Playback
+Playback 后 system.CommitVersion
 最后标记 _isUpdating = false
 ```
 
@@ -2595,6 +2629,15 @@ Playback 把结构变更应用到 Archetype/Chunk
 ```
 
 这就是第一版的安全点。
+
+为什么 Playback 后才提交版本：
+
+```text
+系统自己的 OnUpdate 可能写入 CommandBuffer
+World.Playback 才会真正改变 Archetype/Chunk
+CommitVersion 必须放在 Playback 后
+这样 LastSystemVersion 才包含本系统本次造成的结构变化
+```
 
 #### `void Dispose()`
 
@@ -4379,6 +4422,29 @@ Update 时先执行 A，再执行 B
 
 验证管线释放时会倒序调用系统的 `OnDestroy`。
 
+### `Update_CommitsLastSystemVersionAfterPlayback`
+
+验证系统更新后会提交 `LastSystemVersion`。
+
+重点是提交发生在 Playback 之后：
+
+```text
+系统 OnUpdate 里写入 Commands.Add
+管线执行 World.Playback
+系统 LastSystemVersion 更新到当前 World.ChangeVersion
+```
+
+### `LastSystemVersion_CanDriveChangedReadOnlyQuery`
+
+验证系统可以直接用 `LastSystemVersion` 驱动 Changed Query：
+
+```text
+第一帧处理初始变化
+第二帧没有新变化，跳过
+外部 Set<Position>
+第三帧再次处理变化
+```
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/QuerySystemTests.cs`
@@ -4516,7 +4582,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第九项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十项：
 
 ```text
 Component 类型身份
@@ -4557,6 +4623,7 @@ Archetype TypeIndex 查表
 Chunk ChangeVersion 基础设施
 Changed Query 过滤 API
 ReadOnly Query
+LastSystemVersion
 ```
 
 还没有实现：
@@ -4732,4 +4799,16 @@ World.ForEachChunkReadOnly 执行 Chunk 遍历
 不会污染 Changed Query 的后续过滤结果
 ```
 
-下一步建议继续阶段 H：做 `Enableable Component` 或系统级 `LastSystemVersion`。前者能减少 Add/Remove 带来的 Archetype 迁移，后者能让系统不用手动管理 `sinceVersion`。
+LastSystemVersion 链路：
+
+```text
+系统第一次运行时 LastSystemVersion = 0
+系统 OnUpdate 中调用 ForEachChangedReadOnly<T>(LastSystemVersion, ...)
+SystemPipeline 执行系统逻辑
+SystemPipeline 调用 World.Playback
+SystemPipeline 调用 system.CommitVersion
+system.LastSystemVersion = World.ChangeVersion
+下一帧系统只处理上次运行后变化过的 Chunk
+```
+
+下一步建议继续阶段 H：做 `Enableable Component` 或更细粒度的 Query 写权限声明。前者能减少 Add/Remove 带来的 Archetype 迁移，后者能进一步减少 ChangeVersion 的保守误标。

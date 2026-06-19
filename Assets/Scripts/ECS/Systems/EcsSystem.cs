@@ -15,6 +15,12 @@ namespace CyanMothUnityEcs
         public World World { get; private set; }
 
         /// <summary>
+        /// 这个系统上一次完整更新结束时，World 的 ChangeVersion。
+        /// 在 OnUpdate 中配合 ForEachChanged 使用，可以只处理上次运行后变化过的 Chunk。
+        /// </summary>
+        public int LastSystemVersion { get; private set; }
+
+        /// <summary>
         /// 系统是否已经被加入某个 SystemPipeline。
         /// 第一版不允许一个系统实例同时挂到多个管线，避免生命周期混乱。
         /// </summary>
@@ -38,6 +44,12 @@ namespace CyanMothUnityEcs
                 throw new InvalidOperationException($"{GetType().Name} 还没有加入 SystemPipeline。");
 
             OnUpdate(deltaTime);
+        }
+
+        internal void CommitVersion()
+        {
+            if (World != null)
+                LastSystemVersion = World.ChangeVersion;
         }
 
         internal void Detach()

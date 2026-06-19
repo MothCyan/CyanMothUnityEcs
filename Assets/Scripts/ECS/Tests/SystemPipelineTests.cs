@@ -90,6 +90,44 @@ namespace CyanMothUnityEcs.Tests
             }
         }
 
+        [Test]
+        public void Update_CommitsLastSystemVersionAfterPlayback()
+        {
+            using (World world = new World())
+            using (SystemPipeline pipeline = new SystemPipeline(world))
+            {
+                Entity entity = world.Create(new Position { X = 1 });
+                VersionRecordingSystem system = pipeline.Add(new VersionRecordingSystem(entity));
+
+                pipeline.Update(1);
+
+                Assert.AreEqual(0, system.VersionSeenInUpdate);
+                Assert.AreEqual(world.ChangeVersion, system.LastSystemVersion);
+                Assert.IsTrue(world.Has<Velocity>(entity));
+            }
+        }
+
+        [Test]
+        public void LastSystemVersion_CanDriveChangedReadOnlyQuery()
+        {
+            using (World world = new World())
+            using (SystemPipeline pipeline = new SystemPipeline(world))
+            {
+                Entity entity = world.Create(new Position { X = 1 });
+                ChangedPositionCountSystem system = pipeline.Add(new ChangedPositionCountSystem());
+
+                pipeline.Update(1);
+                Assert.AreEqual(1, system.LastCount);
+
+                pipeline.Update(1);
+                Assert.AreEqual(0, system.LastCount);
+
+                world.Set(entity, new Position { X = 2 });
+                pipeline.Update(1);
+                Assert.AreEqual(1, system.LastCount);
+            }
+        }
+
         private sealed class RecordingSystem : EcsSystem
         {
             public static readonly List<string> Events = new List<string>();
@@ -147,6 +185,46 @@ namespace CyanMothUnityEcs.Tests
             {
                 Assert.IsTrue(World.Has<Velocity>(_entity));
                 Assert.AreEqual(2, World.Get<Velocity>(_entity).X);
+            }
+        }
+
+        private sealed class VersionRecordingSystem : EcsSystem
+        {
+            private readonly Entity _entity;
+
+            public VersionRecordingSystem(Entity entity)
+            {
+                _entity = entity;
+            }
+
+            public int VersionSeenInUpdate { get; private set; }
+
+            protected override void OnUpdate(float deltaTime)
+            {
+                VersionSeenInUpdate = LastSystemVersion;
+                World.Commands.Add(_entity, new Velocity { X = 3 });
+            }
+        }
+
+        private sealed class ChangedPositionCountSystem : EcsSystem
+        {
+            private Query<Position> _query;
+
+            public int LastCount { get; private set; }
+
+            protected override void OnCreate()
+            {
+                _query = World.Query<Position>();
+            }
+
+            protected override void OnUpdate(float deltaTime)
+            {
+                int count = 0;
+                _query.ForEachChangedReadOnly<Position>(LastSystemVersion, (Entity entity, in Position position) =>
+                {
+                    count++;
+                });
+                LastCount = count;
             }
         }
     }

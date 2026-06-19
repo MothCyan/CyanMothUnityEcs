@@ -68,8 +68,10 @@ namespace CyanMothUnityEcs
             {
                 for (int i = 0; i < _systems.Count; i++)
                 {
-                    _systems[i].Update(deltaTime);
+                    EcsSystem system = _systems[i];
+                    system.Update(deltaTime);
                     _world.Playback();
+                    system.CommitVersion();
                 }
             }
             finally
