@@ -97,6 +97,24 @@ namespace CyanMothUnityEcs
         /// 子类可以重写这里注册自己的系统。
         /// 默认只加入 TransformSyncSystem，保证第一版 Unity Bridge 开箱能同步 Transform。
         /// </summary>
+        /// <summary>
+        /// 将指定的 Authoring 对象转换成 ECS Entity。
+        /// 运行时动态生成 GameObject 后，可以调用它把对象接入当前 World。
+        /// </summary>
+        public Entity Convert(Position2DAuthoring authoring)
+        {
+            if (authoring == null)
+                throw new System.ArgumentNullException(nameof(authoring));
+            if (!IsRunning)
+                Initialize();
+            if (authoring.HasEntity)
+                return authoring.Entity;
+
+            Entity entity = authoring.CreateEntity(World, TransformBridge, SpriteRendererBridge);
+            AuthoredEntityCount++;
+            return entity;
+        }
+
         protected virtual void Configure(SystemPipeline pipeline, World world, TransformBridge transformBridge)
         {
             Configure(pipeline, world, transformBridge, SpriteRendererBridge);
@@ -131,8 +149,7 @@ namespace CyanMothUnityEcs
                 if (authorings[i].HasEntity)
                     continue;
 
-                authorings[i].CreateEntity(World, TransformBridge, SpriteRendererBridge);
-                AuthoredEntityCount++;
+                Convert(authorings[i]);
             }
         }
     }

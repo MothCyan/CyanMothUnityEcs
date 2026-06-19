@@ -241,6 +241,58 @@ namespace CyanMothUnityEcs.Tests
         }
 
         [Test]
+        public void EcsRunner_ConvertRuntimeAuthoring_AddsEntity()
+        {
+            GameObject runnerObject = new GameObject("runner-runtime-convert-test");
+            GameObject authoredObject = new GameObject("runtime-authoring-test");
+            try
+            {
+                Position2DAuthoring authoring = authoredObject.AddComponent<Position2DAuthoring>();
+                authoring.InitialPosition = new Vector2(4, 5);
+                EcsRunner runner = runnerObject.AddComponent<EcsRunner>();
+
+                Entity entity = runner.Convert(authoring);
+
+                Assert.IsTrue(runner.IsRunning);
+                Assert.AreEqual(1, runner.AuthoredEntityCount);
+                Assert.AreEqual(entity, authoring.Entity);
+                Assert.IsTrue(runner.World.Has<Position2D>(entity));
+                Assert.AreEqual(4, runner.World.Get<Position2D>(entity).X);
+                Assert.AreEqual(5, runner.World.Get<Position2D>(entity).Y);
+            }
+            finally
+            {
+                Object.DestroyImmediate(runnerObject);
+                Object.DestroyImmediate(authoredObject);
+            }
+        }
+
+        [Test]
+        public void EcsDemoSpawner_SpawnsAndConvertsObjects()
+        {
+            GameObject runnerObject = new GameObject("runner-demo-spawner-test");
+            GameObject spawnerObject = new GameObject("demo-spawner-test");
+            try
+            {
+                EcsRunner runner = runnerObject.AddComponent<EcsRunner>();
+                EcsDemoSpawner spawner = spawnerObject.AddComponent<EcsDemoSpawner>();
+                spawner.Spawn();
+
+                Assert.IsTrue(runner.IsRunning);
+                Assert.AreEqual(64, spawner.SpawnedCount);
+                Assert.AreEqual(64, runner.AuthoredEntityCount);
+                Assert.AreEqual(64, runner.TransformBridge.Count);
+                Assert.AreEqual(64, runner.SpriteRendererBridge.Count);
+                Assert.AreEqual(64, runner.World.GetStats().AliveEntityCount);
+            }
+            finally
+            {
+                Object.DestroyImmediate(runnerObject);
+                Object.DestroyImmediate(spawnerObject);
+            }
+        }
+
+        [Test]
         public void EcsRunner_ConvertsPosition2DAuthoringWithSpriteRenderer()
         {
             GameObject runnerObject = new GameObject("runner-sprite-authoring-test");

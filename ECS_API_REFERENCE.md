@@ -3974,6 +3974,190 @@ Sprite 桥接：SpriteRendererBridge 当前有效 SpriteRenderer 数量
 
 ---
 
+## `Assets/Scripts/ECS/Unity/EcsDemoSpawner.cs`
+
+### `EcsDemoSpawner`
+
+最小 ECS Demo 生成器。
+
+```csharp
+public sealed class EcsDemoSpawner : MonoBehaviour
+```
+
+它会批量创建 GameObject，并给每个对象挂上：
+
+```text
+Position2DAuthoring
+SpriteRenderer
+```
+
+然后通过 `EcsRunner.Convert(authoring)` 把对象接入 ECS。
+
+这条链路用于快速验证：
+
+```text
+Authoring 能创建 Entity
+Velocity2D 能驱动 Position2D
+TransformSyncSystem 能把 ECS 位置写回 Transform
+SpriteRendererBridge 能把 Unity 渲染组件挂到 ECS Entity 上
+EcsDebugOverlay 能显示 World 统计变化
+```
+
+### 字段
+
+#### `private EcsRunner runner`
+
+目标 ECS 启动器。
+
+如果没有手动指定，Spawner 会自动查找场景里的 `EcsRunner`。
+
+#### `private Sprite sprite`
+
+Demo 对象使用的 Sprite。
+
+如果没有指定，Spawner 会运行时创建一个 1x1 白色默认 Sprite，让对象开箱可见。
+
+#### `private int count`
+
+生成对象数量。
+
+默认值是 64。
+
+#### `private Vector2 areaSize`
+
+生成区域大小。
+
+默认值是：
+
+```text
+x = 12
+y = 7
+```
+
+#### `private float minSpeed`
+
+随机速度下限。
+
+#### `private float maxSpeed`
+
+随机速度上限。
+
+#### `private bool spawnOnAwake`
+
+是否在 `Awake` 中自动生成 Demo 对象。
+
+默认开启。
+
+#### `private bool convertImmediately`
+
+生成对象后是否立刻调用 `EcsRunner.Convert`。
+
+默认开启。关闭后，生成出来的对象仍然有 `Position2DAuthoring`，可以等 Runner 初始化扫描时再转换。
+
+#### `private int _spawnedCount`
+
+已经生成的 Demo 对象数量。
+
+#### `private Sprite _runtimeSprite`
+
+运行时默认 Sprite 缓存。
+
+### 属性
+
+#### `public int SpawnedCount`
+
+返回已经生成的 Demo 对象数量。
+
+### Unity 生命周期
+
+#### `private void Awake()`
+
+如果 `spawnOnAwake` 开启，自动调用 `Spawn()`。
+
+### API
+
+#### `public void Spawn()`
+
+生成 Demo 对象。
+
+流程：
+
+```text
+如果已经生成过，直接返回
+查找 EcsRunner
+循环 count 次
+创建 GameObject
+添加 SpriteRenderer
+添加 Position2DAuthoring
+写入初始位置
+写入初始速度
+如果 convertImmediately 开启，调用 EcsRunner.Convert(authoring)
+累计 SpawnedCount
+```
+
+### 内部方法
+
+#### `private EcsRunner ResolveRunner()`
+
+获取目标 Runner。
+
+优先使用手动指定的 `runner`，否则自动查找场景中的 `EcsRunner`。
+
+#### `private GameObject CreateItem(int index)`
+
+创建单个 Demo GameObject。
+
+它会：
+
+```text
+创建 GameObject
+设置父物体
+设置初始位置
+添加 SpriteRenderer
+写入 Sprite 和颜色
+设置 sortingOrder
+```
+
+#### `private Sprite ResolveSprite()`
+
+获取 Demo 对象使用的 Sprite。
+
+如果用户配置了 `sprite`，直接使用它。
+
+如果没有配置，则用 `Texture2D.whiteTexture` 创建一个 1x1 默认 Sprite，并缓存起来。
+
+#### `private Vector3 CreatePosition(int index)`
+
+根据序号计算网格化初始位置。
+
+这样生成出来的对象会铺在 `areaSize` 范围内，而不是重叠在同一个点。
+
+#### `private Vector2 CreateVelocity(int index, int total)`
+
+根据序号生成一个方向和速度。
+
+方向围绕圆形分布，速度在 `minSpeed` 和 `maxSpeed` 之间变化。
+
+#### `private static Color CreateColor(int index)`
+
+根据序号生成不同颜色，方便在场景里区分对象。
+
+### 最小 Demo 使用链路
+
+```text
+场景中新建一个 GameObject，挂 EcsRunner
+再新建一个 GameObject，挂 EcsDemoSpawner
+可选：再挂 EcsDebugOverlay
+运行场景
+EcsDemoSpawner 创建 64 个对象
+每个对象通过 Position2DAuthoring 转成 Entity
+Position2DMoveSystem 推动实体移动
+TransformSyncSystem 把位置写回 GameObject
+EcsDebugOverlay 显示实体、Chunk 和桥接统计
+```
+
+---
+
 ## 三、测试脚本
 
 ## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
@@ -5466,6 +5650,7 @@ SpriteRendererBridge
 SpriteRendererSyncSystem
 EcsRunner
 EcsDebugOverlay
+EcsDemoSpawner
 WorldStats
 World.GetStats
 EcsBenchmarkResult
@@ -5794,4 +5979,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续轻量版收口：做最小可用 Demo 场景或 DemoSpawner。现在场景对象已经能通过 Authoring 生成 ECS Entity，能用 Velocity2D 在 ECS 中移动，能桥接 Transform / SpriteRenderer，也能用 EcsDebugOverlay 观察 World 统计；下一步要把这些能力串成一个开箱可见的小样例。
+下一步建议继续轻量版收口：补齐运行时边界系统，例如让 Demo 对象碰到区域边界后反弹，或者加入更完整的批量渲染 Bridge。现在最小 Demo 生成器已经能把 Authoring、运动、Transform/Sprite 桥接和调试浮层串起来。
