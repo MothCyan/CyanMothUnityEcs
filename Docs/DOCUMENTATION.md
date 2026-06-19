@@ -9,7 +9,7 @@
 如果你刚打开项目，建议按这个顺序读：
 
 ```text
-README.md
+../README.md
 ECS_SCRIPT_OVERVIEW.md
 ECS_LEARNING_PATH.md
 ECS_DESIGN.md
@@ -34,7 +34,7 @@ API 手册用于查字段和方法
 
 | 文档 | 定位 | 适合什么时候看 |
 |---|---|---|
-| [README.md](README.md) | 项目首页 | 第一次打开项目，了解当前状态和运行方式 |
+| [README.md](../README.md) | 项目首页 | 第一次打开项目，了解当前状态和运行方式 |
 | [ECS_SCRIPT_OVERVIEW.md](ECS_SCRIPT_OVERVIEW.md) | 脚本速览 | 想快速知道每个脚本做什么 |
 | [ECS_SCRIPT_DETAILS.md](ECS_SCRIPT_DETAILS.md) | 脚本详细说明 | 想理解每个脚本、每层模块和关键链路 |
 | [ECS_API_REFERENCE.md](ECS_API_REFERENCE.md) | API 手册 | 查类、字段、属性、方法的具体作用 |

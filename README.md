@@ -47,25 +47,27 @@ EcsDebugOverlay 显示 World 统计
 
 ## 文档入口
 
+所有项目文档已经统一整理到 [Docs](Docs/) 文件夹。
+
 先看总文档：
 
-- [DOCUMENTATION.md](DOCUMENTATION.md)：文档总入口，按目标、学习、实现、查 API、看源码分路线整理。
+- [Docs/DOCUMENTATION.md](Docs/DOCUMENTATION.md)：文档总入口，按目标、学习、实现、查 API、看源码分路线整理。
 
 最常用文档：
 
-- [ECS_SCRIPT_OVERVIEW.md](ECS_SCRIPT_OVERVIEW.md)：所有脚本功能速览。
-- [ECS_SCRIPT_DETAILS.md](ECS_SCRIPT_DETAILS.md)：所有脚本详细说明。
-- [ECS_API_REFERENCE.md](ECS_API_REFERENCE.md)：类、字段、属性、API 的逐项说明。
-- [ECS_LEARNING_PATH.md](ECS_LEARNING_PATH.md)：从易到难的学习路线。
-- [ECS_DESIGN.md](ECS_DESIGN.md)：整体设计、优化链路和创新方案。
+- [Docs/ECS_SCRIPT_OVERVIEW.md](Docs/ECS_SCRIPT_OVERVIEW.md)：所有脚本功能速览。
+- [Docs/ECS_SCRIPT_DETAILS.md](Docs/ECS_SCRIPT_DETAILS.md)：所有脚本详细说明。
+- [Docs/ECS_API_REFERENCE.md](Docs/ECS_API_REFERENCE.md)：类、字段、属性、API 的逐项说明。
+- [Docs/ECS_LEARNING_PATH.md](Docs/ECS_LEARNING_PATH.md)：从易到难的学习路线。
+- [Docs/ECS_DESIGN.md](Docs/ECS_DESIGN.md)：整体设计、优化链路和创新方案。
 
 专项文档：
 
-- [ECS_TERMS.md](ECS_TERMS.md)：专业名词解释。
-- [ECS_IMPLEMENTATION_ROADMAP.md](ECS_IMPLEMENTATION_ROADMAP.md)：阶段化实现路线图。
-- [ECS_USAGE_LAYERED_FLOW.md](ECS_USAGE_LAYERED_FLOW.md)：从使用层逐层下钻到底层的调用链。
-- [ECS_ARCHITECTURE_RELATIONSHIP.md](ECS_ARCHITECTURE_RELATIONSHIP.md)：从内存到应用层的模块关系。
-- [ECS_NO_BAKER_SUBSCENE.md](ECS_NO_BAKER_SUBSCENE.md)：替代 Baker/SubScene 的方案。
+- [Docs/ECS_TERMS.md](Docs/ECS_TERMS.md)：专业名词解释。
+- [Docs/ECS_IMPLEMENTATION_ROADMAP.md](Docs/ECS_IMPLEMENTATION_ROADMAP.md)：阶段化实现路线图。
+- [Docs/ECS_USAGE_LAYERED_FLOW.md](Docs/ECS_USAGE_LAYERED_FLOW.md)：从使用层逐层下钻到底层的调用链。
+- [Docs/ECS_ARCHITECTURE_RELATIONSHIP.md](Docs/ECS_ARCHITECTURE_RELATIONSHIP.md)：从内存到应用层的模块关系。
+- [Docs/ECS_NO_BAKER_SUBSCENE.md](Docs/ECS_NO_BAKER_SUBSCENE.md)：替代 Baker/SubScene 的方案。
 
 ---
 
