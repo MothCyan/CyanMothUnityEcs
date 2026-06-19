@@ -12,6 +12,7 @@ namespace CyanMothUnityEcs
         private const int DefaultPayloadCapacity = 1024;
 
         private Command[] _commands;
+        private PlaybackSortKey[] _playbackOrder;
         private byte[] _payload;
         private int _count;
         private int _payloadBytes;
@@ -22,6 +23,7 @@ namespace CyanMothUnityEcs
                 throw new ArgumentOutOfRangeException(nameof(initialCapacity), initialCapacity, "命令缓冲初始容量必须大于 0。");
 
             _commands = new Command[initialCapacity];
+            _playbackOrder = new PlaybackSortKey[initialCapacity];
             _payload = new byte[DefaultPayloadCapacity];
         }
 
@@ -74,16 +76,19 @@ namespace CyanMothUnityEcs
             if (world == null)
                 throw new ArgumentNullException(nameof(world));
 
+            BuildPlaybackOrder(world);
+
             fixed (byte* payloadBase = _payload)
             {
                 for (int i = 0; i < _count; i++)
                 {
-                    Command command = _commands[i];
+                    Command command = _commands[_playbackOrder[i].CommandIndex];
                     Execute(world, command, payloadBase);
-                    _commands[i] = default;
                 }
             }
 
+            Array.Clear(_commands, 0, _count);
+            Array.Clear(_playbackOrder, 0, _count);
             _count = 0;
             _payloadBytes = 0;
         }
@@ -152,9 +157,24 @@ namespace CyanMothUnityEcs
         private void Append(Command command)
         {
             if (_count == _commands.Length)
+            {
                 Array.Resize(ref _commands, _commands.Length * 2);
+                Array.Resize(ref _playbackOrder, _playbackOrder.Length * 2);
+            }
 
             _commands[_count++] = command;
+        }
+
+        private void BuildPlaybackOrder(World world)
+        {
+            for (int i = 0; i < _count; i++)
+            {
+                Command command = _commands[i];
+                int archetypeId = world.GetArchetypeIdForPlayback(command.Entity);
+                _playbackOrder[i] = new PlaybackSortKey(archetypeId, command.Entity.Id, i);
+            }
+
+            Array.Sort(_playbackOrder, 0, _count);
         }
 
         private int FindLastCommand(Entity entity, int componentTypeIndex)
@@ -240,6 +260,33 @@ namespace CyanMothUnityEcs
             public override string ToString()
             {
                 return $"{Kind} {Entity} Type={ComponentTypeIndex} Payload={PayloadOffset}:{PayloadSize}";
+            }
+        }
+
+        private readonly struct PlaybackSortKey : IComparable<PlaybackSortKey>
+        {
+            public readonly int ArchetypeId;
+            public readonly int EntityId;
+            public readonly int CommandIndex;
+
+            public PlaybackSortKey(int archetypeId, int entityId, int commandIndex)
+            {
+                ArchetypeId = archetypeId;
+                EntityId = entityId;
+                CommandIndex = commandIndex;
+            }
+
+            public int CompareTo(PlaybackSortKey other)
+            {
+                int archetypeCompare = ArchetypeId.CompareTo(other.ArchetypeId);
+                if (archetypeCompare != 0)
+                    return archetypeCompare;
+
+                int entityCompare = EntityId.CompareTo(other.EntityId);
+                if (entityCompare != 0)
+                    return entityCompare;
+
+                return CommandIndex.CompareTo(other.CommandIndex);
             }
         }
     }

@@ -213,5 +213,26 @@ namespace CyanMothUnityEcs.Tests
                 Assert.IsFalse(world.IsAlive(entity));
             }
         }
+
+        [Test]
+        public void PlaybackSorting_PreservesCommandOrderWithinSameEntity()
+        {
+            using (World world = new World())
+            {
+                Entity first = world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+                Entity second = world.Create(new Health { Value = 10 });
+
+                world.Commands.Add(second, new Velocity { X = 20 });
+                world.Commands.Remove<Velocity>(first);
+                world.Commands.Add(first, new Velocity { X = 5 });
+
+                world.Playback();
+
+                Assert.IsTrue(world.Has<Velocity>(first));
+                Assert.AreEqual(5, world.Get<Velocity>(first).X);
+                Assert.IsTrue(world.Has<Velocity>(second));
+                Assert.AreEqual(20, world.Get<Velocity>(second).X);
+            }
+        }
     }
 }

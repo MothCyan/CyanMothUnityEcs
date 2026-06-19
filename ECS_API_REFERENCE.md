@@ -4989,7 +4989,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第十四项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十五项：
 
 ```text
 Component 类型身份
@@ -5026,6 +5026,7 @@ CreateMany Chunk 批写优化
 CommandBuffer raw payload
 CommandBuffer 同实体命令合并
 CommandBuffer payload 栈顶回收
+CommandBuffer 回放排序优化
 Archetype TypeIndex 查表
 Chunk ChangeVersion 基础设施
 Changed Query 过滤 API
@@ -5047,7 +5048,6 @@ Debug Window 可视化面板
 更细的系统耗时统计
 ArchetypePrefab
 更完整的便捷 Command API
-CommandBuffer 回放排序优化
 Jobs/Burst
 ```
 
@@ -5162,6 +5162,24 @@ Destroy
   -> 只追加 Destroy
 ```
 
+CommandBuffer 回放排序优化链路：
+
+```text
+Playback 开始前不直接按记录顺序执行
+先为每条命令生成 PlaybackSortKey
+PlaybackSortKey = 当前 ArchetypeId + EntityId + 原始命令序号
+按 PlaybackSortKey 排序得到执行顺序
+
+同一个初始 Archetype 的实体会尽量连续回放
+同一个实体的多条命令按原始命令序号执行
+因此 Remove -> Add 这种顺序不会被破坏
+
+好处：
+大量不同实体结构变更时，回放更倾向于集中处理相同初始 Archetype
+减少在不同 Archetype/Chunk 链表之间来回跳
+保留单实体命令语义，不把性能优化建立在错误重排上
+```
+
 Archetype TypeIndex 查表链路：
 
 ```text
@@ -5264,4 +5282,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续阶段 H：做 CommandBuffer 回放排序优化，或做 Query 多写入组件声明。前者能降低大量结构变更回放时的随机迁移成本，后者适合一个系统同时写两个以上组件但仍不想保守标记整个 Query 的场景。
+下一步建议继续阶段 H：做 ArchetypePrefab，或做 Query 多写入组件声明。前者能把大量同类实体创建的 Archetype 查找和初始组件写入模板化，后者适合一个系统同时写两个以上组件但仍不想保守标记整个 Query 的场景。

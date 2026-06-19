@@ -90,5 +90,11 @@ namespace CyanMothUnityEcs
 
             return chunk;
         }
+
+        internal int GetArchetypeIdForPlayback(Entity entity)
+        {
+            ThrowIfDisposed();
+            return _entities.GetArchetypeId(entity);
+        }
     }
 }
