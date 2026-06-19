@@ -60,6 +60,27 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal bool IsEntityEnabledForQuery<T1>(int queryId, Entity entity)
+            where T1 : unmanaged, IComponentData
+        {
+            return IsEntityEnabledForQuery(queryId, entity);
+        }
+
+        internal bool IsEntityEnabledForQuery<T1, T2>(int queryId, Entity entity)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+        {
+            return IsEntityEnabledForQuery(queryId, entity);
+        }
+
+        internal bool IsEntityEnabledForQuery<T1, T2, T3>(int queryId, Entity entity)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+        {
+            return IsEntityEnabledForQuery(queryId, entity);
+        }
+
         internal void ForEachChunkReadOnly<T1>(int queryId, ChunkAction<T1> action)
             where T1 : unmanaged, IComponentData
         {
@@ -344,6 +365,28 @@ namespace CyanMothUnityEcs
 
             int changedSlot = archetype.GetTypeSlot(changedType.Index);
             return changedSlot >= 0 && chunk->ChangeVersions[changedSlot] > sinceVersion;
+        }
+
+        private bool IsEntityEnabledForQuery(int queryId, Entity entity)
+        {
+            Chunk* chunk = GetEntityChunk(entity, out int entitySlot, out Archetype archetype);
+
+            foreach (int typeIndex in _queryCache.GetComponentTypeIndices(queryId))
+            {
+                int typeSlot = archetype.GetTypeSlot(typeIndex);
+                if (typeSlot < 0)
+                    continue;
+
+                ComponentType type = archetype.Types[typeSlot];
+                if (!type.IsEnableable)
+                    continue;
+
+                byte* mask = GetEnabledMask(chunk, archetype, typeSlot);
+                if (mask != null && !GetEnabledBit(mask, entitySlot))
+                    return false;
+            }
+
+            return true;
         }
 
         private static Entity* GetEntityArray(Chunk* chunk, Archetype archetype)

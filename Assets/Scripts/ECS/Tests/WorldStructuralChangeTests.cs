@@ -23,6 +23,11 @@ namespace CyanMothUnityEcs.Tests
             public int Value;
         }
 
+        private struct Active : IEnableableComponent
+        {
+            public int Value;
+        }
+
         private struct TestTag : IComponentData
         {
         }
@@ -131,6 +136,112 @@ namespace CyanMothUnityEcs.Tests
                 Assert.AreEqual(30, world.Get<Health>(third).Value);
                 Assert.AreEqual(2, world.Get<Position>(second).X);
                 Assert.AreEqual(20, world.Get<Health>(second).Value);
+            }
+        }
+
+        [Test]
+        public void EnableableComponent_DefaultsToEnabled()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Active { Value = 1 });
+
+                Assert.IsTrue(world.IsComponentEnabled<Active>(entity));
+            }
+        }
+
+        [Test]
+        public void SetComponentEnabled_DoesNotMigrateArchetype()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Active { Value = 1 });
+                int archetypeCount = world.ArchetypeCount;
+
+                world.SetComponentEnabled<Active>(entity, false);
+
+                Assert.IsFalse(world.IsComponentEnabled<Active>(entity));
+                Assert.IsTrue(world.Has<Active>(entity));
+                Assert.AreEqual(archetypeCount, world.ArchetypeCount);
+            }
+        }
+
+        [Test]
+        public void Query_SkipsDisabledEnableableComponent()
+        {
+            using (World world = new World())
+            {
+                Entity enabled = world.Create(new Active { Value = 1 });
+                Entity disabled = world.Create(new Active { Value = 2 });
+                world.SetComponentEnabled<Active>(disabled, false);
+
+                int count = 0;
+                int sum = 0;
+                world.Query<Active>().ForEachReadOnly((Entity entity, in Active active) =>
+                {
+                    count++;
+                    sum += active.Value;
+                });
+
+                Assert.AreEqual(1, count);
+                Assert.AreEqual(1, sum);
+                Assert.IsTrue(world.IsComponentEnabled<Active>(enabled));
+            }
+        }
+
+        [Test]
+        public void StructuralChange_KeepsEnableableState()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Active { Value = 1 });
+                world.SetComponentEnabled<Active>(entity, false);
+
+                world.Add(entity, new Position { X = 5 });
+
+                Assert.IsFalse(world.IsComponentEnabled<Active>(entity));
+                int count = 0;
+                world.Query<Active, Position>().ForEachReadOnly((Entity e, in Active active, in Position position) =>
+                {
+                    count++;
+                });
+                Assert.AreEqual(0, count);
+            }
+        }
+
+        [Test]
+        public void Destroy_SwapRemoveKeepsMovedEnableableState()
+        {
+            using (World world = new World())
+            {
+                Entity first = world.Create(new Active { Value = 1 });
+                Entity second = world.Create(new Active { Value = 2 });
+                world.SetComponentEnabled<Active>(second, false);
+
+                world.Destroy(first);
+
+                Assert.IsFalse(world.IsComponentEnabled<Active>(second));
+                int count = 0;
+                world.Query<Active>().ForEachReadOnly((Entity entity, in Active active) =>
+                {
+                    count++;
+                });
+                Assert.AreEqual(0, count);
+            }
+        }
+
+        [Test]
+        public void Create_ReusedSlotResetsEnableableState()
+        {
+            using (World world = new World())
+            {
+                Entity first = world.Create(new Active { Value = 1 });
+                world.SetComponentEnabled<Active>(first, false);
+                world.Destroy(first);
+
+                Entity second = world.Create(new Active { Value = 2 });
+
+                Assert.IsTrue(world.IsComponentEnabled<Active>(second));
             }
         }
     }

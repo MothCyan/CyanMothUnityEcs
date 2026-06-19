@@ -59,6 +59,7 @@ namespace CyanMothUnityEcs
 
             Entity entity = _entities.Create();
             WriteEntity(chunk, archetype, slot, entity);
+            SetAllEnableableBits(chunk, archetype, slot, true);
             _entities.SetLocation(entity, new IntPtr(chunk), slot, archetype.Id);
 
             if (chunk->Count == chunk->Capacity)
@@ -83,6 +84,21 @@ namespace CyanMothUnityEcs
         {
             chunk->ChangeVersions = (int*)((byte*)chunk + archetype.Layout.ChangeVersionOffset);
             UnsafeUtil.Clear(chunk->ChangeVersions, archetype.Types.Length * archetype.Layout.ChangeVersionStride);
+            InitializeEnabledMasks(chunk, archetype);
+        }
+
+        private static void InitializeEnabledMasks(Chunk* chunk, Archetype archetype)
+        {
+            for (int i = 0; i < archetype.Types.Length; i++)
+            {
+                if (!archetype.Types[i].IsEnableable)
+                    continue;
+
+                byte* mask = GetEnabledMask(chunk, archetype, i);
+                UnsafeUtil.Clear(mask, archetype.Layout.EnabledMaskStride);
+                for (int slot = 0; slot < archetype.Layout.Capacity; slot++)
+                    SetEnabledBit(mask, slot, true);
+            }
         }
 
         private static void LinkChunk(Archetype archetype, Chunk* chunk)
@@ -133,6 +149,19 @@ namespace CyanMothUnityEcs
             entities[slot] = entity;
         }
 
+        private static void SetAllEnableableBits(Chunk* chunk, Archetype archetype, int slot, bool enabled)
+        {
+            for (int i = 0; i < archetype.Types.Length; i++)
+            {
+                if (!archetype.Types[i].IsEnableable)
+                    continue;
+
+                byte* mask = GetEnabledMask(chunk, archetype, i);
+                if (mask != null)
+                    SetEnabledBit(mask, slot, enabled);
+            }
+        }
+
         private void WriteComponent<T>(Chunk* chunk, Archetype archetype, int slot, ComponentType type, T component)
             where T : unmanaged, IComponentData
         {
@@ -154,6 +183,27 @@ namespace CyanMothUnityEcs
             int slot = archetype.GetTypeSlot(type.Index);
             if (slot >= 0)
                 chunk->ChangeVersions[slot] = ++_changeVersion;
+        }
+
+        private static byte* GetEnabledMask(Chunk* chunk, Archetype archetype, int typeSlot)
+        {
+            int offset = archetype.Layout.GetEnabledMaskOffset(typeSlot);
+            return offset == ArchetypeLayout.MissingOffset ? null : (byte*)chunk + offset;
+        }
+
+        private static bool GetEnabledBit(byte* mask, int slot)
+        {
+            return (mask[slot >> 3] & (1 << (slot & 7))) != 0;
+        }
+
+        private static void SetEnabledBit(byte* mask, int slot, bool enabled)
+        {
+            int byteIndex = slot >> 3;
+            int bit = 1 << (slot & 7);
+            if (enabled)
+                mask[byteIndex] = (byte)(mask[byteIndex] | bit);
+            else
+                mask[byteIndex] = (byte)(mask[byteIndex] & ~bit);
         }
     }
 }

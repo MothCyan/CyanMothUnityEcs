@@ -67,6 +67,14 @@ namespace CyanMothUnityEcs
             return _records[queryId].Matches;
         }
 
+        public int[] GetComponentTypeIndices(int queryId)
+        {
+            if ((uint)queryId >= _records.Count)
+                throw new ArgumentOutOfRangeException(nameof(queryId));
+
+            return _records[queryId].ComponentTypeIndices;
+        }
+
         private void Refresh(int queryId)
         {
             QueryRecord record = _records[queryId];

@@ -117,6 +117,9 @@ namespace CyanMothUnityEcs
             if (addedData != null && !addedType.IsTag)
                 WriteRawComponent(targetChunk, targetArchetype, targetSlot, addedType, addedData);
 
+            if (addedType.IsEnableable)
+                SetEnabledForMigratedComponent(targetChunk, targetArchetype, targetSlot, addedType, true);
+
             _entities.SetLocation(entity, new IntPtr(targetChunk), targetSlot, targetArchetype.Id);
 
             if (targetChunk->Count == targetChunk->Capacity)
@@ -147,7 +150,33 @@ namespace CyanMothUnityEcs
                 byte* target = (byte*)targetChunk + targetOffset + stride * targetSlot;
                 UnsafeUtil.Copy(source, target, stride);
                 CopyChangeVersion(sourceArchetype, sourceChunk, targetArchetype, targetChunk, type);
+                CopyEnabledState(sourceArchetype, sourceChunk, sourceSlot, targetArchetype, targetChunk, targetSlot, type);
             }
+        }
+
+        private static void CopyEnabledState(
+            Archetype sourceArchetype,
+            Chunk* sourceChunk,
+            int sourceEntitySlot,
+            Archetype targetArchetype,
+            Chunk* targetChunk,
+            int targetEntitySlot,
+            ComponentType type)
+        {
+            if (!type.IsEnableable)
+                return;
+
+            int sourceTypeSlot = sourceArchetype.GetTypeSlot(type.Index);
+            int targetTypeSlot = targetArchetype.GetTypeSlot(type.Index);
+            if (sourceTypeSlot < 0 || targetTypeSlot < 0)
+                return;
+
+            byte* sourceMask = GetEnabledMask(sourceChunk, sourceArchetype, sourceTypeSlot);
+            byte* targetMask = GetEnabledMask(targetChunk, targetArchetype, targetTypeSlot);
+            if (sourceMask == null || targetMask == null)
+                return;
+
+            SetEnabledBit(targetMask, targetEntitySlot, GetEnabledBit(sourceMask, sourceEntitySlot));
         }
 
         private static void CopyChangeVersion(
@@ -175,6 +204,17 @@ namespace CyanMothUnityEcs
             byte* target = (byte*)chunk + offset + stride * slot;
             UnsafeUtil.Copy(data, target, stride);
             MarkComponentChanged(chunk, archetype, type);
+        }
+
+        private static void SetEnabledForMigratedComponent(Chunk* chunk, Archetype archetype, int entitySlot, ComponentType type, bool enabled)
+        {
+            int typeSlot = archetype.GetTypeSlot(type.Index);
+            if (typeSlot < 0)
+                return;
+
+            byte* mask = GetEnabledMask(chunk, archetype, typeSlot);
+            if (mask != null)
+                SetEnabledBit(mask, entitySlot, enabled);
         }
 
         private void WriteExistingRawComponent(Entity entity, ComponentType type, void* data)
@@ -210,6 +250,7 @@ namespace CyanMothUnityEcs
 
                 entities[slot] = movedEntity;
                 MoveComponentRows(archetype, chunk, sourceSlot: lastSlot, targetSlot: slot);
+                MoveEnabledBits(archetype, chunk, sourceSlot: lastSlot, targetSlot: slot);
                 _entities.SetLocation(movedEntity, new IntPtr(chunk), slot, archetype.Id);
             }
 
@@ -230,6 +271,22 @@ namespace CyanMothUnityEcs
                 byte* source = componentBase + stride * sourceSlot;
                 byte* target = componentBase + stride * targetSlot;
                 UnsafeUtil.Copy(source, target, stride);
+            }
+        }
+
+        private static void MoveEnabledBits(Archetype archetype, Chunk* chunk, int sourceSlot, int targetSlot)
+        {
+            for (int i = 0; i < archetype.Types.Length; i++)
+            {
+                if (!archetype.Types[i].IsEnableable)
+                    continue;
+
+                byte* mask = GetEnabledMask(chunk, archetype, i);
+                if (mask == null)
+                    continue;
+
+                SetEnabledBit(mask, targetSlot, GetEnabledBit(mask, sourceSlot));
+                SetEnabledBit(mask, sourceSlot, true);
             }
         }
 

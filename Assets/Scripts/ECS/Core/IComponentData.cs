@@ -8,4 +8,12 @@
     public interface IComponentData
     {
     }
+
+    /// <summary>
+    /// 可启用组件标记接口。
+    /// 实现这个接口的组件可以在不 Add/Remove、不迁移 Archetype 的情况下临时启用或禁用。
+    /// </summary>
+    public interface IEnableableComponent : IComponentData
+    {
+    }
 }

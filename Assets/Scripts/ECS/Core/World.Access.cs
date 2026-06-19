@@ -43,6 +43,40 @@ namespace CyanMothUnityEcs
             WriteComponent(chunk, archetype, slot, type, component);
         }
 
+        public bool IsComponentEnabled<T>(Entity entity)
+            where T : unmanaged, IEnableableComponent
+        {
+            ThrowIfDisposed();
+
+            ComponentType type = TypeRegistry.Get<T>();
+            Chunk* chunk = GetEntityChunk(entity, out int slot, out Archetype archetype);
+            int typeSlot = archetype.GetTypeSlot(type.Index);
+            if (typeSlot < 0)
+                throw new InvalidOperationException($"实体不包含组件 {type.ManagedType.Name}。");
+
+            byte* mask = GetEnabledMask(chunk, archetype, typeSlot);
+            return mask == null || GetEnabledBit(mask, slot);
+        }
+
+        public void SetComponentEnabled<T>(Entity entity, bool enabled)
+            where T : unmanaged, IEnableableComponent
+        {
+            ThrowIfDisposed();
+
+            ComponentType type = TypeRegistry.Get<T>();
+            Chunk* chunk = GetEntityChunk(entity, out int slot, out Archetype archetype);
+            int typeSlot = archetype.GetTypeSlot(type.Index);
+            if (typeSlot < 0)
+                throw new InvalidOperationException($"实体不包含组件 {type.ManagedType.Name}。");
+
+            byte* mask = GetEnabledMask(chunk, archetype, typeSlot);
+            if (mask == null)
+                return;
+
+            SetEnabledBit(mask, slot, enabled);
+            MarkComponentChanged(chunk, archetype, type);
+        }
+
         private Chunk* GetEntityChunk(Entity entity, out int slot, out Archetype archetype)
         {
             _entities.Validate(entity);

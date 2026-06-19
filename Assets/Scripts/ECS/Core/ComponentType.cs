@@ -13,15 +13,17 @@ namespace CyanMothUnityEcs
         public readonly int Size;
         public readonly int Align;
         public readonly bool IsTag;
+        public readonly bool IsEnableable;
         public readonly Type ManagedType;
         public readonly ComponentMask Mask;
 
-        public ComponentType(int index, int size, int align, bool isTag, Type managedType)
+        public ComponentType(int index, int size, int align, bool isTag, bool isEnableable, Type managedType)
         {
             Index = index;
             Size = size;
             Align = align;
             IsTag = isTag;
+            IsEnableable = isEnableable;
             ManagedType = managedType ?? throw new ArgumentNullException(nameof(managedType));
             Mask = ComponentMask.FromIndex(index);
         }

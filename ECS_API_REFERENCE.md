@@ -75,6 +75,36 @@ where T : unmanaged, IComponentData
 
 接口本身没有方法。它只负责表达类型身份。
 
+### `IEnableableComponent`
+
+可启用组件标记接口。
+
+```csharp
+public interface IEnableableComponent : IComponentData
+{
+}
+```
+
+实现这个接口的组件会额外拥有一份 Chunk 内 enabled bitset。
+
+它的用途是：
+
+```text
+临时关闭组件参与 Query
+不 Remove 组件
+不迁移 Archetype
+不改变 Entity 的组件组合
+```
+
+示例：
+
+```csharp
+public struct Active : IEnableableComponent
+{
+    public int Value;
+}
+```
+
 ---
 
 ## `Assets/Scripts/ECS/Core/ComponentMask.cs`
@@ -313,6 +343,12 @@ Chunk 内组件数组起始地址对齐
 
 Tag 组件通常没有有效数据，只表达状态或分类。
 
+#### `public readonly bool IsEnableable`
+
+表示该组件是否实现了 `IEnableableComponent`。
+
+如果为 true，`ArchetypeLayout` 会为它分配 enabled bitset。
+
 #### `public readonly Type ManagedType`
 
 原始 C# 类型。
@@ -340,7 +376,7 @@ TypeRegistry 查表
 
 ### 构造函数
 
-#### `ComponentType(int index, int size, int align, bool isTag, Type managedType)`
+#### `ComponentType(int index, int size, int align, bool isTag, bool isEnableable, Type managedType)`
 
 创建组件元数据。
 
@@ -1630,6 +1666,32 @@ Tag 组件没有数据区，不能 Get ref
 
 Tag 组件没有数据区，因此 Set Tag 会直接返回。
 
+#### `bool IsComponentEnabled<T>(Entity entity) where T : unmanaged, IEnableableComponent`
+
+读取某个 enableable 组件当前是否启用。
+
+注意：
+
+```text
+组件仍然存在于 Archetype
+这里只读取 Chunk 内 enabled bitset
+```
+
+#### `void SetComponentEnabled<T>(Entity entity, bool enabled) where T : unmanaged, IEnableableComponent`
+
+启用或禁用某个 enableable 组件。
+
+它不会执行结构迁移：
+
+```text
+不会 Add/Remove
+不会改变 Archetype
+不会移动 Chunk 行
+只修改 Chunk 内 enabled bitset
+```
+
+设置后会标记该组件 ChangeVersion，方便 Changed Query 感知开关变化。
+
 #### `private Chunk* GetEntityChunk(Entity entity, out int slot, out Archetype archetype)`
 
 通过 EntityStore 定位实体当前所在 Chunk、slot 和 Archetype。
@@ -2181,6 +2243,8 @@ ForEach
 
 即使回调里只是读取字段，底层也无法可靠判断用户有没有写入，因此会保守标记组件变化。
 
+逐实体 `ForEach` 会自动跳过 disabled 的 enableable 组件实体。
+
 #### `ForEachReadOnly(...)`
 
 易用版只读逐实体遍历。
@@ -2198,6 +2262,8 @@ ForEachReadOnly
 
 如果系统只是读取数据，优先使用这个 API，可以让 `ForEachChanged` 后续跳过更多没变化的 Chunk。
 
+逐实体 `ForEachReadOnly` 会自动跳过 disabled 的 enableable 组件实体。
+
 #### `ForEachChunk(...)`
 
 高性能逐 Chunk 遍历。
@@ -2205,6 +2271,14 @@ ForEachReadOnly
 它会把连续组件数组指针交给用户。
 
 这是可写遍历，会保守更新 ChangeVersion。
+
+注意：
+
+```text
+ChunkAction 直接暴露整块连续数组
+第一版不会自动压缩或过滤 disabled 实体
+需要用户自己检查 enabled 状态，或使用逐实体 ForEach / ForEachReadOnly
+```
 
 #### `ForEachChanged<TChanged>(int sinceVersion, ...)`
 
@@ -2236,6 +2310,8 @@ world.Query<Position, Velocity>().ForEachChanged<Position>(
 
 它是可写遍历，回调执行后会保守更新 Query 中组件的 ChangeVersion。
 
+逐实体 `ForEachChanged` 会自动跳过 disabled 的 enableable 组件实体。
+
 #### `ForEachChangedReadOnly<TChanged>(int sinceVersion, ...)`
 
 只读版 Changed Query。
@@ -2243,6 +2319,8 @@ world.Query<Position, Velocity>().ForEachChanged<Position>(
 它同样只遍历变化过的 Chunk，但不会因为读取而再次更新 ChangeVersion。
 
 适合“只对变化数据做统计、同步、收集”的系统。
+
+逐实体 `ForEachChangedReadOnly` 会自动跳过 disabled 的 enableable 组件实体。
 
 #### `ForEachChangedChunk<TChanged>(int sinceVersion, ...)`
 
@@ -3557,6 +3635,23 @@ Chunk 内 `ChangeVersions` 表的起始偏移。
 
 Tag 组件 stride 为 0。
 
+#### `public readonly int[] EnabledMaskOffsets`
+
+每个组件槽位对应的 enabled bitset 偏移。
+
+非 enableable 组件为 `MissingOffset`。
+
+#### `public readonly int EnabledMaskStride`
+
+单个 enableable 组件 bitset 占用的字节数。
+
+它按当前 Chunk 容量计算：
+
+```text
+ceil(Capacity / 8)
+再按 4 字节对齐
+```
+
 ### API
 
 #### `static ArchetypeLayout Create(ComponentType[] types)`
@@ -3577,11 +3672,17 @@ Tag 组件 stride 为 0。
 
 读取某个组件槽位的 stride。
 
+#### `int GetEnabledMaskOffset(int typeSlot)`
+
+读取某个组件槽位的 enabled bitset 偏移。
+
 ### 计算规则
 
 ```text
 Header
 -> ChangeVersions[]
+-> EnabledMask[enableable component 0]
+-> EnabledMask[enableable component 1]
 -> Entity[]
 -> ComponentArray[0]
 -> ComponentArray[1]
@@ -3589,6 +3690,8 @@ Header
 ```
 
 `ChangeVersions[]` 是固定区，只和组件类型数量有关，不随 Chunk 容量增长。
+
+`EnabledMask[]` 只为实现 `IEnableableComponent` 的组件分配。
 
 每个组件数组都会按该组件的 `Align` 对齐。
 
@@ -4187,6 +4290,30 @@ TestTag
 
 验证结构迁移触发源 Chunk swap-remove 时，被移动实体的位置仍然正确。
 
+### `EnableableComponent_DefaultsToEnabled`
+
+验证实现 `IEnableableComponent` 的组件创建后默认启用。
+
+### `SetComponentEnabled_DoesNotMigrateArchetype`
+
+验证启用/禁用组件不会造成 Archetype 迁移，也不会改变组件是否存在。
+
+### `Query_SkipsDisabledEnableableComponent`
+
+验证逐实体 Query 会跳过 disabled 的 enableable 组件。
+
+### `StructuralChange_KeepsEnableableState`
+
+验证实体迁移到新 Archetype 后，已有 enableable 组件的 enabled 状态会被保留。
+
+### `Destroy_SwapRemoveKeepsMovedEnableableState`
+
+验证 Chunk swap-remove 移动实体行时，enabled bit 也会同步移动。
+
+### `Create_ReusedSlotResetsEnableableState`
+
+验证新实体复用旧 slot 时，会把 enableable 组件状态重置为 enabled，避免继承已销毁实体留下的 disabled bit。
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/ChangeVersionTests.cs`
@@ -4582,7 +4709,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第十项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十一项：
 
 ```text
 Component 类型身份
@@ -4624,6 +4751,7 @@ Chunk ChangeVersion 基础设施
 Changed Query 过滤 API
 ReadOnly Query
 LastSystemVersion
+Enableable Component
 ```
 
 还没有实现：
@@ -4637,7 +4765,6 @@ Debug Window 可视化面板
 ArchetypePrefab
 更完整的便捷 Command API
 CommandBuffer 回放排序优化
-Enableable Component
 Jobs/Burst
 ```
 
@@ -4811,4 +4938,17 @@ system.LastSystemVersion = World.ChangeVersion
 下一帧系统只处理上次运行后变化过的 Chunk
 ```
 
-下一步建议继续阶段 H：做 `Enableable Component` 或更细粒度的 Query 写权限声明。前者能减少 Add/Remove 带来的 Archetype 迁移，后者能进一步减少 ChangeVersion 的保守误标。
+Enableable Component 链路：
+
+```text
+组件实现 IEnableableComponent
+TypeRegistry 标记 ComponentType.IsEnableable
+ArchetypeLayout 为该组件分配 enabled bitset
+Chunk 初始化时默认全部 enabled
+SetComponentEnabled 只改 bitset，不迁移 Archetype
+逐实体 Query 检查 Query 组件的 enabled bit
+disabled 实体不进入 ForEach / ForEachReadOnly 回调
+结构迁移和 swap-remove 会复制 enabled bit
+```
+
+下一步建议继续阶段 H：做更细粒度的 Query 写权限声明，或继续补 Enableable 的 ChunkAction 手动过滤辅助 API。前者能进一步减少 ChangeVersion 的保守误标，后者能让高性能 Chunk 遍历也更容易处理 disabled 实体。

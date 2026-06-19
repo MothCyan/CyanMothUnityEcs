@@ -42,8 +42,9 @@ namespace CyanMothUnityEcs
                 int size = SizeOf<T>();
                 int align = EstimateAlignment(size);
                 bool isTag = size == 1 && managedType.GetFields().Length == 0;
+                bool isEnableable = typeof(IEnableableComponent).IsAssignableFrom(managedType);
 
-                ComponentType componentType = new ComponentType(_count, size, align, isTag, managedType);
+                ComponentType componentType = new ComponentType(_count, size, align, isTag, isEnableable, managedType);
                 TypesByManagedType.Add(managedType, componentType);
                 TypesByIndex[_count] = componentType;
                 _count++;

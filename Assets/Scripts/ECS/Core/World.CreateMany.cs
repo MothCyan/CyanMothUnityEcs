@@ -140,6 +140,7 @@ namespace CyanMothUnityEcs
                 Entity entity = _entities.Create();
                 entities[entityStart + i] = entity;
                 WriteEntity(chunk, archetype, slot, entity);
+                SetAllEnableableBits(chunk, archetype, slot, true);
                 _entities.SetLocation(entity, new IntPtr(chunk), slot, archetype.Id);
             }
 
