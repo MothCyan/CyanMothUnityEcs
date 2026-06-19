@@ -3826,6 +3826,154 @@ AuthoredEntityCount++
 
 ---
 
+## `Assets/Scripts/ECS/Unity/EcsDebugOverlay.cs`
+
+### `EcsDebugOverlay`
+
+运行时 ECS 调试浮层。
+
+```csharp
+public sealed class EcsDebugOverlay : MonoBehaviour
+```
+
+它用 Unity 自带 IMGUI 在屏幕角落显示 `WorldStats`。它只读取统计快照，不直接访问 Chunk 指针，也不会修改 World。
+
+用途：
+
+```text
+运行场景时观察 ECS 是否已经启动
+观察当前实体数量、Archetype 数量、Chunk 数量
+观察 Chunk 容量和利用率
+观察 CommandBuffer 是否还有待回放命令
+观察 Authoring / TransformBridge / SpriteRendererBridge 是否接通
+```
+
+这不是最终性能分析器，而是轻量版第一层可视化调试入口。
+
+### 字段
+
+#### `private EcsRunner runner`
+
+要观察的 ECS 启动器。
+
+如果手动拖入某个 `EcsRunner`，调试浮层就固定观察它。
+
+#### `private bool autoFindRunner`
+
+是否自动在场景中查找 `EcsRunner`。
+
+默认开启，适合快速 Demo：只要场景里有 Runner，Overlay 就能自己找到。
+
+#### `private bool showWhenNotRunning`
+
+当 Runner 存在但还没有初始化 World 时，是否显示“未运行”状态。
+
+#### `private Rect windowRect`
+
+浮层在屏幕上的位置和大小。
+
+默认值：
+
+```text
+x = 12
+y = 12
+width = 260
+height = 190
+```
+
+#### `private GUIStyle _titleStyle`
+
+标题文字样式缓存。
+
+#### `private GUIStyle _labelStyle`
+
+普通文字样式缓存。
+
+### 属性
+
+#### `public EcsRunner Runner`
+
+运行时读写当前观察的 Runner。
+
+测试、工具脚本或自定义启动流程可以直接设置它。
+
+### Unity 生命周期
+
+#### `private void Awake()`
+
+调用 `TryAutoFindRunner()`。
+
+如果没有手动指定 Runner，并且 `autoFindRunner` 开启，就自动查找场景中的 `EcsRunner`。
+
+#### `private void OnGUI()`
+
+绘制调试浮层。
+
+流程：
+
+```text
+初始化 GUI 样式
+尝试自动查找 Runner
+没有 Runner -> 显示未找到
+Runner 未运行 -> 显示未运行
+Runner 已运行 -> 读取 World.GetStats()
+绘制实体、Archetype、Chunk、命令、桥接表等统计
+```
+
+### 内部方法
+
+#### `private void TryAutoFindRunner()`
+
+自动查找场景中的 `EcsRunner`。
+
+Unity 2023.1 及以上使用：
+
+```text
+FindFirstObjectByType<EcsRunner>()
+```
+
+旧版本使用：
+
+```text
+FindObjectOfType<EcsRunner>()
+```
+
+#### `private void EnsureStyles()`
+
+延迟创建 GUI 样式。
+
+这样避免每次 `OnGUI` 都 new 样式对象。
+
+#### `private void DrawLine(string name, string value)`
+
+绘制一行键值对。
+
+示例：
+
+```text
+实体  128
+Chunk 4
+```
+
+### 显示数据说明
+
+```text
+Runner：当前观察的 EcsRunner 对象名
+实体：World 里仍然存活的 Entity 数量
+实体容量：EntityStore 曾经创建过的 Entity 句柄容量
+Archetype：当前组件组合数量
+Chunk：当前被 Archetype 使用的 Chunk 数量
+预留 Chunk：ChunkAllocator 已经申请的 Chunk 总数
+Chunk 容量：所有活跃 Chunk 可容纳的 Entity 总数
+Chunk 利用率：存活实体数 / Chunk 容量
+待回放命令：CommandBuffer 中还没有 Playback 的命令数
+Authoring 实体：Runner 初始化时从 Position2DAuthoring 转换出来的实体数
+Transform 桥接：TransformBridge 当前有效 Transform 数量
+Sprite 桥接：SpriteRendererBridge 当前有效 SpriteRenderer 数量
+```
+
+---
+
 ## 三、测试脚本
 
 ## `Assets/Scripts/ECS/Core/UnsafeUtil.cs`
@@ -5317,6 +5465,7 @@ SpriteRenderState
 SpriteRendererBridge
 SpriteRendererSyncSystem
 EcsRunner
+EcsDebugOverlay
 WorldStats
 World.GetStats
 EcsBenchmarkResult
@@ -5349,7 +5498,6 @@ Query 指定写入组件
 ```text
 完整 Authoring 批量收口
 批量渲染 Bridge
-Debug Window 可视化面板
 更细的系统耗时统计
 更完整的便捷 Command API
 Jobs/Burst
@@ -5422,6 +5570,8 @@ Debug & Benchmark 链路：
 ```text
 World.GetStats 遍历 Archetype/Chunk
 生成 WorldStats 快照
+EcsDebugOverlay 运行时读取 WorldStats
+OnGUI 显示实体、Archetype、Chunk、命令和桥接表统计
 EcsBenchmark 运行固定测试
 EcsBenchmarkResult 记录耗时和统计
 后续用这些数据判断优化是否真的有效
@@ -5644,4 +5794,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续轻量版收口：做最小可用 Demo 和基础 Debug Window。现在场景对象已经能通过 Authoring 生成 ECS Entity，并能桥接 Transform / SpriteRenderer；下一步要把这些能力串成一个开箱可见、可调试的小样例。
+下一步建议继续轻量版收口：做最小可用 Demo 场景或 DemoSpawner。现在场景对象已经能通过 Authoring 生成 ECS Entity，能用 Velocity2D 在 ECS 中移动，能桥接 Transform / SpriteRenderer，也能用 EcsDebugOverlay 观察 World 统计；下一步要把这些能力串成一个开箱可见的小样例。
