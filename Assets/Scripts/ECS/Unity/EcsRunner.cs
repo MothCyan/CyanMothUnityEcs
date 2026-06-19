@@ -11,9 +11,13 @@ namespace CyanMothUnityEcs
         [SerializeField]
         private bool addTransformSyncSystem = true;
 
+        [SerializeField]
+        private bool convertPosition2DAuthoringOnInitialize = true;
+
         public World World { get; private set; }
         public SystemPipeline Pipeline { get; private set; }
         public TransformBridge TransformBridge { get; private set; }
+        public int AuthoredEntityCount { get; private set; }
         public bool IsRunning => World != null;
 
         private void Awake()
@@ -45,6 +49,9 @@ namespace CyanMothUnityEcs
             TransformBridge = new TransformBridge();
 
             Configure(Pipeline, World, TransformBridge);
+
+            if (convertPosition2DAuthoringOnInitialize)
+                ConvertPosition2DAuthoring();
         }
 
         /// <summary>
@@ -73,6 +80,7 @@ namespace CyanMothUnityEcs
             Pipeline = null;
             TransformBridge = null;
             World = null;
+            AuthoredEntityCount = 0;
         }
 
         /// <summary>
@@ -83,6 +91,27 @@ namespace CyanMothUnityEcs
         {
             if (addTransformSyncSystem)
                 pipeline.Add(new TransformSyncSystem(transformBridge));
+        }
+
+        /// <summary>
+        /// 扫描场景中的 Position2DAuthoring，并直接创建 ECS Entity。
+        /// 这是轻量版替代 Baker/SubScene 的第一条运行时 Authoring 链路。
+        /// </summary>
+        protected virtual void ConvertPosition2DAuthoring()
+        {
+#if UNITY_2023_1_OR_NEWER
+            Position2DAuthoring[] authorings = FindObjectsByType<Position2DAuthoring>(FindObjectsSortMode.None);
+#else
+            Position2DAuthoring[] authorings = FindObjectsOfType<Position2DAuthoring>();
+#endif
+            for (int i = 0; i < authorings.Length; i++)
+            {
+                if (authorings[i].HasEntity)
+                    continue;
+
+                authorings[i].CreateEntity(World, TransformBridge);
+                AuthoredEntityCount++;
+            }
         }
     }
 }

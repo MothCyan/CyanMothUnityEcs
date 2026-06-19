@@ -111,5 +111,60 @@ namespace CyanMothUnityEcs.Tests
                 Object.DestroyImmediate(gameObject);
             }
         }
+
+        [Test]
+        public void EcsRunner_ConvertsPosition2DAuthoring()
+        {
+            GameObject runnerObject = new GameObject("runner-authoring-test");
+            GameObject authoredObject = new GameObject("position-authoring-test");
+            try
+            {
+                authoredObject.transform.position = new Vector3(5, 6, 0);
+                Position2DAuthoring authoring = authoredObject.AddComponent<Position2DAuthoring>();
+                EcsRunner runner = runnerObject.AddComponent<EcsRunner>();
+
+                runner.Initialize();
+
+                Assert.AreEqual(1, runner.AuthoredEntityCount);
+                Assert.IsTrue(authoring.HasEntity);
+                Assert.IsTrue(runner.World.Has<Position2D>(authoring.Entity));
+                Assert.AreEqual(5, runner.World.Get<Position2D>(authoring.Entity).X);
+                Assert.AreEqual(6, runner.World.Get<Position2D>(authoring.Entity).Y);
+                Assert.IsTrue(runner.World.Has<TransformProxy>(authoring.Entity));
+            }
+            finally
+            {
+                Object.DestroyImmediate(runnerObject);
+                Object.DestroyImmediate(authoredObject);
+            }
+        }
+
+        [Test]
+        public void Position2DAuthoring_CanSkipTransformSync()
+        {
+            GameObject gameObject = new GameObject("position-authoring-no-sync");
+            try
+            {
+                Position2DAuthoring authoring = gameObject.AddComponent<Position2DAuthoring>();
+                authoring.InitialPosition = new Vector2(8, 9);
+                authoring.SyncTransform = false;
+
+                using (World world = new World())
+                using (TransformBridge bridge = new TransformBridge())
+                {
+                    Entity entity = authoring.CreateEntity(world, bridge);
+
+                    Assert.IsTrue(world.Has<Position2D>(entity));
+                    Assert.IsFalse(world.Has<TransformProxy>(entity));
+                    Assert.AreEqual(8, world.Get<Position2D>(entity).X);
+                    Assert.AreEqual(9, world.Get<Position2D>(entity).Y);
+                    Assert.AreEqual(0, bridge.Count);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
     }
 }

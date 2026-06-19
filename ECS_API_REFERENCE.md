@@ -3465,6 +3465,50 @@ ForEachChunk 遍历 Position2D + TransformProxy
 
 ---
 
+## `Assets/Scripts/ECS/Unity/Position2D.cs`
+
+### `Position2DAuthoring`
+
+运行时 Authoring 组件。
+
+```csharp
+public sealed class Position2DAuthoring : MonoBehaviour
+```
+
+它的作用是把场景里的 GameObject 直接转换成 ECS Entity：
+
+```text
+读取 Transform.position 或手动 initialPosition
+创建 Position2D 组件
+可选注册 TransformBridge
+如果启用 Transform 同步，再创建 TransformProxy
+把创建出的 Entity 缓存在 Authoring 组件上
+```
+
+这条链路不需要 Baker，也不需要 SubScene。它牺牲一部分编辑期预烘焙能力，换取更直接的使用方式和更低的上手成本。
+
+#### `useTransformPosition`
+
+是否使用当前 `transform.position.x/y` 作为初始 ECS 位置。
+
+#### `initialPosition`
+
+手动指定的初始 ECS 位置。
+
+#### `syncTransform`
+
+是否创建 `TransformProxy`，让 `TransformSyncSystem` 把 ECS 位置同步回 Unity Transform。
+
+#### `Entity`
+
+该 Authoring 创建出的 ECS Entity。
+
+#### `CreateEntity(World world, TransformBridge transformBridge)`
+
+运行时创建 Entity。
+
+---
+
 ## `Assets/Scripts/ECS/Unity/EcsRunner.cs`
 
 ### `EcsRunner`
@@ -3491,6 +3535,10 @@ OnDestroy -> Shutdown
 
 当前默认开启，让第一版 Unity Bridge 开箱就能同步 Transform。
 
+#### `private bool convertPosition2DAuthoringOnInitialize`
+
+初始化时是否扫描场景里的 `Position2DAuthoring` 并直接创建 ECS Entity。
+
 ### 属性
 
 #### `public World World`
@@ -3504,6 +3552,10 @@ Runner 创建并驱动的系统管线。
 #### `public TransformBridge TransformBridge`
 
 Unity Transform 桥接表。
+
+#### `public int AuthoredEntityCount`
+
+本次初始化从 Authoring 转换出来的 Entity 数量。
 
 #### `public bool IsRunning`
 
@@ -3536,6 +3588,7 @@ Runner 是否已经初始化。
 创建 SystemPipeline
 创建 TransformBridge
 调用 Configure
+扫描 Position2DAuthoring 并创建 Entity
 ```
 
 重复调用不会重复创建。
@@ -3561,6 +3614,7 @@ Pipeline.Dispose
 TransformBridge.Dispose
 World.Dispose
 清空引用
+AuthoredEntityCount 归零
 ```
 
 #### `protected virtual void Configure(SystemPipeline pipeline, World world, TransformBridge transformBridge)`
@@ -3575,6 +3629,21 @@ World.Dispose
 如果 addTransformSyncSystem 为 true
 加入 TransformSyncSystem
 ```
+
+#### `protected virtual void ConvertPosition2DAuthoring()`
+
+扫描当前场景中的 `Position2DAuthoring`，逐个调用 `CreateEntity`。
+
+流程：
+
+```text
+FindObjectsOfType<Position2DAuthoring>
+跳过已经创建过 Entity 的 Authoring
+Authoring.CreateEntity(World, TransformBridge)
+AuthoredEntityCount++
+```
+
+这是当前轻量版替代 Baker/SubScene 的最小实现。
 
 ---
 
@@ -5058,6 +5127,7 @@ CommandBuffer / Playback
 QueryCache / Query / ForEachChunk
 EcsSystem / SystemPipeline
 Position2D
+Position2DAuthoring
 TransformProxy
 TransformBridge
 TransformSyncSystem
@@ -5092,7 +5162,7 @@ Query 指定写入组件
 还没有实现：
 
 ```text
-完整 Authoring
+完整 Authoring 批量收口
 SpriteRenderer Bridge
 批量渲染 Bridge
 Debug Window 可视化面板
@@ -5119,11 +5189,26 @@ Unity Bridge 链路：
 
 ```text
 Unity EcsRunner 初始化 World/Pipeline
+Position2DAuthoring 转换为 Entity
 TransformBridge 注册 Transform
 ECS Entity 持有 Position2D + TransformProxy
 TransformSyncSystem Query ECS 数据
 通过 TransformProxy.Id 找到 Transform
 写回 transform.position
+```
+
+运行时 Authoring 链路：
+
+```text
+用户在 GameObject 上挂 Position2DAuthoring
+EcsRunner.Initialize
+扫描场景 Authoring
+读取 Transform.position 或 initialPosition
+World.Create(Position2D)
+如果 syncTransform 开启：
+  -> TransformBridge.Register(transform)
+  -> World.Create(Position2D, TransformProxy)
+后续 TransformSyncSystem 把 ECS Position2D 写回 Unity Transform
 ```
 
 Debug & Benchmark 链路：
@@ -5353,4 +5438,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议进入轻量版收口链路：先做基础 Authoring 替代 Baker，把 Unity 场景中的配置转换成 ArchetypePrefab 或直接批量 Instantiate；然后做 SpriteRenderer Bridge 和最小可用 Demo。这样轻量 ECS 才能从“底层能跑”走到“用户能顺手使用”。
+下一步建议继续轻量版收口：做 SpriteRenderer Bridge 和最小可用 Demo。现在已经有基础运行时 Authoring，可以从场景对象直接生成 ECS Entity；下一步要让 2D 业务对象既能由 ECS 驱动位置，也能接入 Unity 的 Sprite 显示。
