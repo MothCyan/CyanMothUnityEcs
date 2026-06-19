@@ -6,6 +6,8 @@
 
 ## 阅读辅助
 
+完整文档入口见 [DOCUMENTATION.md](DOCUMENTATION.md)。
+
 专业名词解释已拆分到 [ECS_TERMS.md](ECS_TERMS.md)。
 
 具体实施顺序已拆分到 [ECS_IMPLEMENTATION_ROADMAP.md](ECS_IMPLEMENTATION_ROADMAP.md)。
@@ -19,6 +21,8 @@
 从易到难的学习顺序和练习建议见 [ECS_LEARNING_PATH.md](ECS_LEARNING_PATH.md)。
 
 当前脚本、类、字段和 API 的逐项说明见 [ECS_API_REFERENCE.md](ECS_API_REFERENCE.md)。
+
+当前所有脚本的速览见 [ECS_SCRIPT_OVERVIEW.md](ECS_SCRIPT_OVERVIEW.md)，详细说明见 [ECS_SCRIPT_DETAILS.md](ECS_SCRIPT_DETAILS.md)。
 
 主文档只保留 ECS 优化链路、创新方案和底层重构路线。
 
