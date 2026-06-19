@@ -59,6 +59,61 @@ namespace CyanMothUnityEcs.Tests
         }
 
         [Test]
+        public void SpriteRendererBridge_RegisterAndGet_Works()
+        {
+            GameObject gameObject = new GameObject("sprite-bridge-test");
+            try
+            {
+                SpriteRenderer renderer = gameObject.AddComponent<SpriteRenderer>();
+                using (SpriteRendererBridge bridge = new SpriteRendererBridge())
+                {
+                    int id = bridge.Register(renderer);
+
+                    Assert.AreEqual(1, bridge.Count);
+                    Assert.IsTrue(bridge.TryGet(id, out SpriteRenderer result));
+                    Assert.AreSame(renderer, result);
+                    Assert.AreSame(renderer, bridge.Get(id));
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void SpriteRendererSyncSystem_UpdatesRendererState()
+        {
+            GameObject gameObject = new GameObject("sprite-sync-test");
+            try
+            {
+                SpriteRenderer renderer = gameObject.AddComponent<SpriteRenderer>();
+                using (World world = new World())
+                using (SpriteRendererBridge bridge = new SpriteRendererBridge())
+                using (SystemPipeline pipeline = new SystemPipeline(world))
+                {
+                    int proxyId = bridge.Register(renderer);
+                    world.Create(
+                        new SpriteRendererProxy(proxyId),
+                        new SpriteRenderState(0.2f, 0.4f, 0.6f, 0.8f, visible: false));
+                    pipeline.Add(new SpriteRendererSyncSystem(bridge));
+
+                    pipeline.Update(0.016f);
+
+                    Assert.IsFalse(renderer.enabled);
+                    Assert.AreEqual(0.2f, renderer.color.r);
+                    Assert.AreEqual(0.4f, renderer.color.g);
+                    Assert.AreEqual(0.6f, renderer.color.b);
+                    Assert.AreEqual(0.8f, renderer.color.a);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
         public void TransformSyncSystem_UpdatesTransform()
         {
             GameObject gameObject = new GameObject("sync-test");
@@ -131,6 +186,34 @@ namespace CyanMothUnityEcs.Tests
                 Assert.AreEqual(5, runner.World.Get<Position2D>(authoring.Entity).X);
                 Assert.AreEqual(6, runner.World.Get<Position2D>(authoring.Entity).Y);
                 Assert.IsTrue(runner.World.Has<TransformProxy>(authoring.Entity));
+            }
+            finally
+            {
+                Object.DestroyImmediate(runnerObject);
+                Object.DestroyImmediate(authoredObject);
+            }
+        }
+
+        [Test]
+        public void EcsRunner_ConvertsPosition2DAuthoringWithSpriteRenderer()
+        {
+            GameObject runnerObject = new GameObject("runner-sprite-authoring-test");
+            GameObject authoredObject = new GameObject("sprite-authoring-test");
+            try
+            {
+                SpriteRenderer renderer = authoredObject.AddComponent<SpriteRenderer>();
+                renderer.color = new Color(0.1f, 0.2f, 0.3f, 0.4f);
+                Position2DAuthoring authoring = authoredObject.AddComponent<Position2DAuthoring>();
+                EcsRunner runner = runnerObject.AddComponent<EcsRunner>();
+
+                runner.Initialize();
+
+                Assert.IsTrue(authoring.HasEntity);
+                Assert.IsTrue(runner.World.Has<SpriteRendererProxy>(authoring.Entity));
+                Assert.IsTrue(runner.World.Has<SpriteRenderState>(authoring.Entity));
+                Assert.AreEqual(1, runner.SpriteRendererBridge.Count);
+                Assert.AreEqual(0.1f, runner.World.Get<SpriteRenderState>(authoring.Entity).R);
+                Assert.AreEqual(0.4f, runner.World.Get<SpriteRenderState>(authoring.Entity).A);
             }
             finally
             {

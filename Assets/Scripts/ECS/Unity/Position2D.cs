@@ -33,6 +33,9 @@ namespace CyanMothUnityEcs
         [SerializeField]
         private bool syncTransform = true;
 
+        [SerializeField]
+        private bool syncSpriteRenderer = true;
+
         public Entity Entity { get; private set; }
         public bool HasEntity => !Entity.IsNull;
 
@@ -52,7 +55,13 @@ namespace CyanMothUnityEcs
             }
         }
 
-        internal Entity CreateEntity(World world, TransformBridge transformBridge)
+        public bool SyncSpriteRenderer
+        {
+            get => syncSpriteRenderer;
+            set => syncSpriteRenderer = value;
+        }
+
+        internal Entity CreateEntity(World world, TransformBridge transformBridge, SpriteRendererBridge spriteRendererBridge = null)
         {
             if (world == null)
                 throw new System.ArgumentNullException(nameof(world));
@@ -61,9 +70,36 @@ namespace CyanMothUnityEcs
                 ? new Vector2(transform.position.x, transform.position.y)
                 : initialPosition;
 
-            Entity = syncTransform && transformBridge != null
-                ? world.Create(new Position2D(position.x, position.y), new TransformProxy(transformBridge.Register(transform)))
-                : world.Create(new Position2D(position.x, position.y));
+            Position2D positionComponent = new Position2D(position.x, position.y);
+            bool hasTransform = syncTransform && transformBridge != null;
+            SpriteRenderer spriteRenderer = null;
+            bool hasSprite = syncSpriteRenderer &&
+                             spriteRendererBridge != null &&
+                             TryGetComponent(out spriteRenderer);
+
+            if (hasTransform && hasSprite)
+            {
+                Entity = world.Create(
+                    positionComponent,
+                    new TransformProxy(transformBridge.Register(transform)),
+                    new SpriteRendererProxy(spriteRendererBridge.Register(spriteRenderer)));
+                world.Add(Entity, SpriteRenderState.FromColor(spriteRenderer.color, spriteRenderer.enabled));
+            }
+            else if (hasTransform)
+            {
+                Entity = world.Create(positionComponent, new TransformProxy(transformBridge.Register(transform)));
+            }
+            else if (hasSprite)
+            {
+                Entity = world.Create(
+                    positionComponent,
+                    new SpriteRendererProxy(spriteRendererBridge.Register(spriteRenderer)),
+                    SpriteRenderState.FromColor(spriteRenderer.color, spriteRenderer.enabled));
+            }
+            else
+            {
+                Entity = world.Create(positionComponent);
+            }
 
             return Entity;
         }

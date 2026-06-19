@@ -36,4 +36,36 @@ namespace CyanMothUnityEcs
             });
         }
     }
+
+    /// <summary>
+    /// 把 ECS 中的 SpriteRenderState 同步到 Unity SpriteRenderer。
+    /// 只有带 SpriteRendererProxy 的实体才会访问 Unity 渲染组件。
+    /// </summary>
+    public sealed unsafe class SpriteRendererSyncSystem : EcsSystem
+    {
+        private readonly SpriteRendererBridge _bridge;
+        private Query<SpriteRendererProxy, SpriteRenderState> _query;
+
+        public SpriteRendererSyncSystem(SpriteRendererBridge bridge)
+        {
+            _bridge = bridge;
+        }
+
+        protected override void OnCreate()
+        {
+            _query = World.Query<SpriteRendererProxy, SpriteRenderState>();
+        }
+
+        protected override void OnUpdate(float deltaTime)
+        {
+            _query.ForEachReadOnly((Entity entity, in SpriteRendererProxy proxy, in SpriteRenderState state) =>
+            {
+                if (!_bridge.TryGet(proxy.Id, out SpriteRenderer renderer))
+                    return;
+
+                renderer.enabled = state.Visible != 0;
+                renderer.color = new Color(state.R, state.G, state.B, state.A);
+            });
+        }
+    }
 }

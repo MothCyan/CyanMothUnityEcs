@@ -3400,6 +3400,52 @@ _count--
 
 当前等价于 `Clear()`。
 
+### `SpriteRendererProxy`
+
+ECS 到 Unity `SpriteRenderer` 的代理组件。
+
+```csharp
+public struct SpriteRendererProxy : IComponentData
+```
+
+它只保存 `SpriteRendererBridge` 返回的整数 Id，不保存 Unity 对象引用。
+
+### `SpriteRenderState`
+
+SpriteRenderer 的 ECS 显示状态组件。
+
+```csharp
+public struct SpriteRenderState : IComponentData
+```
+
+字段：
+
+```text
+R/G/B/A：颜色通道
+Visible：是否启用 SpriteRenderer
+```
+
+这里使用 float 和 byte 保存数据，避免 ECS 组件直接持有 UnityEngine.Object。
+
+### `SpriteRendererBridge`
+
+Unity SpriteRenderer 桥接表。
+
+```csharp
+public sealed class SpriteRendererBridge : IDisposable
+```
+
+它的结构和 `TransformBridge` 一样：
+
+```text
+Register(SpriteRenderer) -> int Id
+TryGet(Id) -> SpriteRenderer
+Unregister(Id)
+Clear / Dispose
+```
+
+真实 `SpriteRenderer` 只存在托管桥接表中，Chunk 里只存 Id。
+
 ---
 
 ## `Assets/Scripts/ECS/Unity/TransformSyncSystem.cs`
@@ -3463,6 +3509,32 @@ ForEachChunk 遍历 Position2D + TransformProxy
 保留原本 position.z
 ```
 
+### `SpriteRendererSyncSystem`
+
+把 ECS 显示状态同步到 Unity SpriteRenderer 的系统。
+
+```csharp
+public sealed unsafe class SpriteRendererSyncSystem : EcsSystem
+```
+
+它查询：
+
+```text
+SpriteRendererProxy
+SpriteRenderState
+```
+
+流程：
+
+```text
+ForEachReadOnly 遍历 SpriteRendererProxy + SpriteRenderState
+通过 SpriteRendererProxy.Id 查 SpriteRenderer
+写入 renderer.enabled
+写入 renderer.color
+```
+
+这不是最终批量渲染方案，而是轻量版先接通 Unity 2D 可见对象的桥接层。
+
 ---
 
 ## `Assets/Scripts/ECS/Unity/Position2D.cs`
@@ -3481,7 +3553,9 @@ public sealed class Position2DAuthoring : MonoBehaviour
 读取 Transform.position 或手动 initialPosition
 创建 Position2D 组件
 可选注册 TransformBridge
+可选注册 SpriteRendererBridge
 如果启用 Transform 同步，再创建 TransformProxy
+如果有 SpriteRenderer，再创建 SpriteRendererProxy 和 SpriteRenderState
 把创建出的 Entity 缓存在 Authoring 组件上
 ```
 
@@ -3498,6 +3572,10 @@ public sealed class Position2DAuthoring : MonoBehaviour
 #### `syncTransform`
 
 是否创建 `TransformProxy`，让 `TransformSyncSystem` 把 ECS 位置同步回 Unity Transform。
+
+#### `syncSpriteRenderer`
+
+是否在 GameObject 带有 `SpriteRenderer` 时创建 `SpriteRendererProxy` 和 `SpriteRenderState`。
 
 #### `Entity`
 
@@ -3535,6 +3613,10 @@ OnDestroy -> Shutdown
 
 当前默认开启，让第一版 Unity Bridge 开箱就能同步 Transform。
 
+#### `private bool addSpriteRendererSyncSystem`
+
+是否默认加入 `SpriteRendererSyncSystem`。
+
 #### `private bool convertPosition2DAuthoringOnInitialize`
 
 初始化时是否扫描场景里的 `Position2DAuthoring` 并直接创建 ECS Entity。
@@ -3552,6 +3634,10 @@ Runner 创建并驱动的系统管线。
 #### `public TransformBridge TransformBridge`
 
 Unity Transform 桥接表。
+
+#### `public SpriteRendererBridge SpriteRendererBridge`
+
+Unity SpriteRenderer 桥接表。
 
 #### `public int AuthoredEntityCount`
 
@@ -3587,6 +3673,7 @@ Runner 是否已经初始化。
 创建 World
 创建 SystemPipeline
 创建 TransformBridge
+创建 SpriteRendererBridge
 调用 Configure
 扫描 Position2DAuthoring 并创建 Entity
 ```
@@ -3611,6 +3698,7 @@ Pipeline.Update(deltaTime)
 
 ```text
 Pipeline.Dispose
+SpriteRendererBridge.Dispose
 TransformBridge.Dispose
 World.Dispose
 清空引用
@@ -3628,6 +3716,8 @@ AuthoredEntityCount 归零
 ```text
 如果 addTransformSyncSystem 为 true
 加入 TransformSyncSystem
+如果 addSpriteRendererSyncSystem 为 true
+加入 SpriteRendererSyncSystem
 ```
 
 #### `protected virtual void ConvertPosition2DAuthoring()`
@@ -3639,7 +3729,7 @@ AuthoredEntityCount 归零
 ```text
 FindObjectsOfType<Position2DAuthoring>
 跳过已经创建过 Entity 的 Authoring
-Authoring.CreateEntity(World, TransformBridge)
+Authoring.CreateEntity(World, TransformBridge, SpriteRendererBridge)
 AuthoredEntityCount++
 ```
 
@@ -5131,6 +5221,10 @@ Position2DAuthoring
 TransformProxy
 TransformBridge
 TransformSyncSystem
+SpriteRendererProxy
+SpriteRenderState
+SpriteRendererBridge
+SpriteRendererSyncSystem
 EcsRunner
 WorldStats
 World.GetStats
@@ -5163,7 +5257,6 @@ Query 指定写入组件
 
 ```text
 完整 Authoring 批量收口
-SpriteRenderer Bridge
 批量渲染 Bridge
 Debug Window 可视化面板
 更细的系统耗时统计
@@ -5191,10 +5284,14 @@ Unity Bridge 链路：
 Unity EcsRunner 初始化 World/Pipeline
 Position2DAuthoring 转换为 Entity
 TransformBridge 注册 Transform
-ECS Entity 持有 Position2D + TransformProxy
+SpriteRendererBridge 注册 SpriteRenderer
+ECS Entity 持有 Position2D + TransformProxy + SpriteRendererProxy + SpriteRenderState
 TransformSyncSystem Query ECS 数据
 通过 TransformProxy.Id 找到 Transform
 写回 transform.position
+SpriteRendererSyncSystem Query ECS 数据
+通过 SpriteRendererProxy.Id 找到 SpriteRenderer
+写回 renderer.color / renderer.enabled
 ```
 
 运行时 Authoring 链路：
@@ -5208,7 +5305,11 @@ World.Create(Position2D)
 如果 syncTransform 开启：
   -> TransformBridge.Register(transform)
   -> World.Create(Position2D, TransformProxy)
+如果 syncSpriteRenderer 开启且 GameObject 有 SpriteRenderer：
+  -> SpriteRendererBridge.Register(spriteRenderer)
+  -> 给 Entity 写入 SpriteRendererProxy + SpriteRenderState
 后续 TransformSyncSystem 把 ECS Position2D 写回 Unity Transform
+后续 SpriteRendererSyncSystem 把 ECS SpriteRenderState 写回 Unity SpriteRenderer
 ```
 
 Debug & Benchmark 链路：
@@ -5438,4 +5539,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续轻量版收口：做 SpriteRenderer Bridge 和最小可用 Demo。现在已经有基础运行时 Authoring，可以从场景对象直接生成 ECS Entity；下一步要让 2D 业务对象既能由 ECS 驱动位置，也能接入 Unity 的 Sprite 显示。
+下一步建议继续轻量版收口：做最小可用 Demo 和基础 Debug Window。现在场景对象已经能通过 Authoring 生成 ECS Entity，并能桥接 Transform / SpriteRenderer；下一步要把这些能力串成一个开箱可见、可调试的小样例。

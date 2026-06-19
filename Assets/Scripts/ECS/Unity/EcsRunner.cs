@@ -12,11 +12,15 @@ namespace CyanMothUnityEcs
         private bool addTransformSyncSystem = true;
 
         [SerializeField]
+        private bool addSpriteRendererSyncSystem = true;
+
+        [SerializeField]
         private bool convertPosition2DAuthoringOnInitialize = true;
 
         public World World { get; private set; }
         public SystemPipeline Pipeline { get; private set; }
         public TransformBridge TransformBridge { get; private set; }
+        public SpriteRendererBridge SpriteRendererBridge { get; private set; }
         public int AuthoredEntityCount { get; private set; }
         public bool IsRunning => World != null;
 
@@ -47,8 +51,9 @@ namespace CyanMothUnityEcs
             World = new World();
             Pipeline = new SystemPipeline(World);
             TransformBridge = new TransformBridge();
+            SpriteRendererBridge = new SpriteRendererBridge();
 
-            Configure(Pipeline, World, TransformBridge);
+            Configure(Pipeline, World, TransformBridge, SpriteRendererBridge);
 
             if (convertPosition2DAuthoringOnInitialize)
                 ConvertPosition2DAuthoring();
@@ -74,10 +79,12 @@ namespace CyanMothUnityEcs
                 return;
 
             Pipeline.Dispose();
+            SpriteRendererBridge.Dispose();
             TransformBridge.Dispose();
             World.Dispose();
 
             Pipeline = null;
+            SpriteRendererBridge = null;
             TransformBridge = null;
             World = null;
             AuthoredEntityCount = 0;
@@ -89,8 +96,18 @@ namespace CyanMothUnityEcs
         /// </summary>
         protected virtual void Configure(SystemPipeline pipeline, World world, TransformBridge transformBridge)
         {
+            Configure(pipeline, world, transformBridge, SpriteRendererBridge);
+        }
+
+        /// <summary>
+        /// 子类可以重写这里注册自己的系统，并同时拿到 Transform 和 SpriteRenderer 桥接表。
+        /// </summary>
+        protected virtual void Configure(SystemPipeline pipeline, World world, TransformBridge transformBridge, SpriteRendererBridge spriteRendererBridge)
+        {
             if (addTransformSyncSystem)
                 pipeline.Add(new TransformSyncSystem(transformBridge));
+            if (addSpriteRendererSyncSystem)
+                pipeline.Add(new SpriteRendererSyncSystem(spriteRendererBridge));
         }
 
         /// <summary>
@@ -109,7 +126,7 @@ namespace CyanMothUnityEcs
                 if (authorings[i].HasEntity)
                     continue;
 
-                authorings[i].CreateEntity(World, TransformBridge);
+                authorings[i].CreateEntity(World, TransformBridge, SpriteRendererBridge);
                 AuthoredEntityCount++;
             }
         }
