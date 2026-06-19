@@ -157,5 +157,65 @@ namespace CyanMothUnityEcs.Tests
                 Assert.AreEqual(3, positionSecond);
             }
         }
+
+        [Test]
+        public void ForEachChanged_FiltersChunksByComponentVersion()
+        {
+            using (World world = new World())
+            {
+                Entity first = world.Create(new Position { X = 1 }, new Velocity { X = 10 });
+                Entity second = world.Create(new Position { X = 2 }, new Velocity { X = 20 });
+
+                int count = 0;
+                world.Query<Position, Velocity>().ForEachChanged<Position>(0, (Entity _, ref Position position, ref Velocity velocity) =>
+                {
+                    count++;
+                });
+
+                Assert.AreEqual(2, count);
+
+                int lastVersion = world.ChangeVersion;
+                count = 0;
+                world.Query<Position, Velocity>().ForEachChanged<Position>(lastVersion, (Entity _, ref Position position, ref Velocity velocity) =>
+                {
+                    count++;
+                });
+
+                Assert.AreEqual(0, count);
+
+                world.Set(first, new Position { X = 3 });
+                count = 0;
+                float sum = 0;
+                world.Query<Position, Velocity>().ForEachChanged<Position>(lastVersion, (Entity _, ref Position position, ref Velocity velocity) =>
+                {
+                    count++;
+                    sum += position.X;
+                });
+
+                Assert.AreEqual(2, count);
+                Assert.AreEqual(5, sum);
+                Assert.AreEqual(2, world.Get<Position>(second).X);
+            }
+        }
+
+        [Test]
+        public void ForEachChanged_IgnoresChunksWhenDifferentComponentChanged()
+        {
+            using (World world = new World())
+            {
+                Entity entity = world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+                int lastVersion = world.ChangeVersion;
+
+                world.Set(entity, new Velocity { X = 5 });
+
+                int count = 0;
+                world.Query<Position, Velocity>().ForEachChanged<Position>(lastVersion, (Entity _, ref Position position, ref Velocity velocity) =>
+                {
+                    count++;
+                });
+
+                Assert.AreEqual(0, count);
+            }
+        }
     }
 }

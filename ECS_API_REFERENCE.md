@@ -1849,6 +1849,7 @@ World.Query<T1>
 World.Query<T1,T2>
 World.Query<T1,T2,T3>
 ForEachChunk 执行
+ForEachChangedChunk 执行
 ```
 
 ### API
@@ -1879,15 +1880,67 @@ QueryCache.GetMatchingArchetypes
 -> 遍历 Archetype 下的 Chunk 链表
 -> 根据 Layout offset 找 T1*
 -> 调用 ChunkAction
+-> 标记 T1 在该 Chunk 上可能被写入
+```
+
+当前普通 `ForEach` / `ForEachChunk` 暴露的是 `ref` 和指针，因此按“可写访问”处理。
+
+也就是说，只要回调执行过，Query 中的组件就会保守更新 ChangeVersion。
+
+后续如果要减少误标，可以再加 `ReadOnly Query`。
+
+#### `internal void ForEachChangedChunk<T1, TChanged>(...)`
+
+执行单组件 Changed Chunk 遍历。
+
+`sinceVersion` 表示“只处理版本号大于这个值的 Chunk”。
+
+你可以把它理解成：
+
+```text
+系统上次处理时，World.ChangeVersion 是 100
+这一帧只想处理 100 之后变化过的 Position
+就调用 ForEachChanged<Position>(100, ...)
+```
+
+流程：
+
+```text
+TypeRegistry.Get<TChanged>
+QueryCache.GetMatchingArchetypes
+-> 遍历匹配 Archetype
+-> 遍历 Chunk
+-> ChunkChangedSince 判断 TChanged 的版本是否大于 sinceVersion
+-> 命中才调用 ChunkAction
+-> 回调执行后标记 Query 中的可写组件
 ```
 
 #### `internal void ForEachChunk<T1, T2>(...)`
 
 执行双组件 Chunk 遍历。
 
+#### `internal void ForEachChangedChunk<T1, T2, TChanged>(...)`
+
+执行双组件 Changed Chunk 遍历。
+
 #### `internal void ForEachChunk<T1, T2, T3>(...)`
 
 执行三组件 Chunk 遍历。
+
+#### `internal void ForEachChangedChunk<T1, T2, T3, TChanged>(...)`
+
+执行三组件 Changed Chunk 遍历。
+
+#### `private static bool ChunkChangedSince(...)`
+
+判断某个 Chunk 上某类组件是否在 `sinceVersion` 之后变化过。
+
+它只做 O(1) 查表：
+
+```text
+changedSlot = archetype.GetTypeSlot(changedType.Index)
+chunk->ChangeVersions[changedSlot] > sinceVersion
+```
 
 #### `private static Entity* GetEntityArray(...)`
 
@@ -2077,6 +2130,40 @@ ForEach
 高性能逐 Chunk 遍历。
 
 它会把连续组件数组指针交给用户。
+
+#### `ForEachChanged<TChanged>(int sinceVersion, ...)`
+
+易用版 Changed Query。
+
+它只遍历 `TChanged` 在 `sinceVersion` 之后变化过的 Chunk。
+
+示例：
+
+```csharp
+int lastVersion = world.ChangeVersion;
+
+// 后面某个地方写入 Position...
+
+world.Query<Position, Velocity>().ForEachChanged<Position>(
+    lastVersion,
+    (Entity entity, ref Position position, ref Velocity velocity) =>
+    {
+        // 这里只会进 Position 变化过的 Chunk
+    });
+```
+
+注意：
+
+```text
+过滤粒度是 Chunk，不是单个 Entity
+只要同一个 Chunk 里某个 Position 变了，该 Chunk 内所有匹配实体都会被遍历
+```
+
+#### `ForEachChangedChunk<TChanged>(int sinceVersion, ...)`
+
+高性能版 Changed Query。
+
+它和 `ForEachChunk` 一样直接暴露连续组件数组指针，但会先用 ChangeVersion 跳过没变化的 Chunk。
 
 ---
 
@@ -4122,6 +4209,20 @@ Query<Velocity, Position>
 
 它们命中的 Archetype 一样，但组件数组参数顺序不同。
 
+### `ForEachChanged_FiltersChunksByComponentVersion`
+
+验证 Changed Query 能按 Chunk ChangeVersion 过滤：
+
+```text
+sinceVersion 为 0 时能扫到初始写入的 Chunk
+sinceVersion 等于当前 World.ChangeVersion 时不会重复扫
+之后 Set<Position> 会让 Position 变化过的 Chunk 再次被扫到
+```
+
+### `ForEachChanged_IgnoresChunksWhenDifferentComponentChanged`
+
+验证只修改 `Velocity` 时，`ForEachChanged<Position>` 不会命中。
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/SystemPipelineTests.cs`
@@ -4316,7 +4417,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第七项：
+当前已经实现到阶段 H 的 Advanced Optimization 第八项：
 
 ```text
 Component 类型身份
@@ -4355,6 +4456,7 @@ CommandBuffer 同实体命令合并
 CommandBuffer payload 栈顶回收
 Archetype TypeIndex 查表
 Chunk ChangeVersion 基础设施
+Changed Query 过滤 API
 ```
 
 还没有实现：
@@ -4369,7 +4471,7 @@ ArchetypePrefab
 更完整的便捷 Command API
 CommandBuffer 回放排序优化
 Enableable Component
-Changed Query 过滤 API
+ReadOnly Query
 Jobs/Burst
 ```
 
@@ -4508,4 +4610,16 @@ MarkComponentChanged 递增 World.ChangeVersion
 调试 API GetChangeVersion<T> 可读取当前 Chunk 组件版本
 ```
 
-下一步建议继续阶段 H：做 `Changed Query 过滤 API` 或 `Enableable Component`。前者能真正让系统只扫变化过的 Chunk，后者能减少 Add/Remove 带来的 Archetype 迁移。
+Changed Query 过滤链路：
+
+```text
+系统记录上次处理时的 World.ChangeVersion
+调用 ForEachChanged<TChanged>(sinceVersion, ...)
+QueryCache 返回匹配 Archetype
+遍历 Chunk 前读取 chunk->ChangeVersions[changedSlot]
+版本号不大于 sinceVersion -> 跳过整个 Chunk
+版本号大于 sinceVersion -> 执行业务回调
+回调执行后按可写 Query 保守标记组件变化
+```
+
+下一步建议继续阶段 H：做 `ReadOnly Query` 或 `Enableable Component`。前者能减少普通 Query 对 ChangeVersion 的保守误标，后者能减少 Add/Remove 带来的 Archetype 迁移。

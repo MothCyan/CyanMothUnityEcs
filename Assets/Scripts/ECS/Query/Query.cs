@@ -33,6 +33,28 @@ namespace CyanMothUnityEcs
 
             _world.ForEachChunk(_queryId, action);
         }
+
+        public void ForEachChanged<TChanged>(int sinceVersion, QueryAction<T1> action)
+            where TChanged : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            ForEachChangedChunk<TChanged>(sinceVersion, (Entity* entities, T1* c1, int count) =>
+            {
+                for (int i = 0; i < count; i++)
+                    action(entities[i], ref c1[i]);
+            });
+        }
+
+        public void ForEachChangedChunk<TChanged>(int sinceVersion, ChunkAction<T1> action)
+            where TChanged : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            _world.ForEachChangedChunk<T1, TChanged>(_queryId, sinceVersion, action);
+        }
     }
 
     public readonly unsafe struct Query<T1, T2>
@@ -66,6 +88,28 @@ namespace CyanMothUnityEcs
                 throw new ArgumentNullException(nameof(action));
 
             _world.ForEachChunk(_queryId, action);
+        }
+
+        public void ForEachChanged<TChanged>(int sinceVersion, QueryAction<T1, T2> action)
+            where TChanged : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            ForEachChangedChunk<TChanged>(sinceVersion, (Entity* entities, T1* c1, T2* c2, int count) =>
+            {
+                for (int i = 0; i < count; i++)
+                    action(entities[i], ref c1[i], ref c2[i]);
+            });
+        }
+
+        public void ForEachChangedChunk<TChanged>(int sinceVersion, ChunkAction<T1, T2> action)
+            where TChanged : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            _world.ForEachChangedChunk<T1, T2, TChanged>(_queryId, sinceVersion, action);
         }
     }
 
@@ -101,6 +145,28 @@ namespace CyanMothUnityEcs
                 throw new ArgumentNullException(nameof(action));
 
             _world.ForEachChunk(_queryId, action);
+        }
+
+        public void ForEachChanged<TChanged>(int sinceVersion, QueryAction<T1, T2, T3> action)
+            where TChanged : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            ForEachChangedChunk<TChanged>(sinceVersion, (Entity* entities, T1* c1, T2* c2, T3* c3, int count) =>
+            {
+                for (int i = 0; i < count; i++)
+                    action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
+            });
+        }
+
+        public void ForEachChangedChunk<TChanged>(int sinceVersion, ChunkAction<T1, T2, T3> action)
+            where TChanged : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            _world.ForEachChangedChunk<T1, T2, T3, TChanged>(_queryId, sinceVersion, action);
         }
     }
 }
