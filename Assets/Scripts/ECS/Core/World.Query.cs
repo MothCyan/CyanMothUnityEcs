@@ -60,6 +60,23 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachChunkReadOnly<T1>(int queryId, ChunkAction<T1> action)
+            where T1 : unmanaged, IComponentData
+        {
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    action(GetEntityArray(chunk, archetype), (T1*)((byte*)chunk + match.Offset1), chunk->Count);
+                }
+            }
+        }
+
         internal void ForEachChangedChunk<T1, TChanged>(int queryId, int sinceVersion, ChunkAction<T1> action)
             where T1 : unmanaged, IComponentData
             where TChanged : unmanaged, IComponentData
@@ -78,6 +95,26 @@ namespace CyanMothUnityEcs
 
                     action(GetEntityArray(chunk, archetype), (T1*)((byte*)chunk + match.Offset1), chunk->Count);
                     MarkComponentChanged(chunk, archetype, t1);
+                }
+            }
+        }
+
+        internal void ForEachChangedChunkReadOnly<T1, TChanged>(int queryId, int sinceVersion, ChunkAction<T1> action)
+            where T1 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    action(GetEntityArray(chunk, archetype), (T1*)((byte*)chunk + match.Offset1), chunk->Count);
                 }
             }
         }
@@ -109,6 +146,28 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachChunkReadOnly<T1, T2>(int queryId, ChunkAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+        {
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    action(
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        chunk->Count);
+                }
+            }
+        }
+
         internal void ForEachChangedChunk<T1, T2, TChanged>(int queryId, int sinceVersion, ChunkAction<T1, T2> action)
             where T1 : unmanaged, IComponentData
             where T2 : unmanaged, IComponentData
@@ -134,6 +193,31 @@ namespace CyanMothUnityEcs
                         chunk->Count);
                     MarkComponentChanged(chunk, archetype, t1);
                     MarkComponentChanged(chunk, archetype, t2);
+                }
+            }
+        }
+
+        internal void ForEachChangedChunkReadOnly<T1, T2, TChanged>(int queryId, int sinceVersion, ChunkAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    action(
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        chunk->Count);
                 }
             }
         }
@@ -169,6 +253,30 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachChunkReadOnly<T1, T2, T3>(int queryId, ChunkAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+        {
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    action(
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        (T3*)((byte*)chunk + match.Offset3),
+                        chunk->Count);
+                }
+            }
+        }
+
         internal void ForEachChangedChunk<T1, T2, T3, TChanged>(int queryId, int sinceVersion, ChunkAction<T1, T2, T3> action)
             where T1 : unmanaged, IComponentData
             where T2 : unmanaged, IComponentData
@@ -198,6 +306,33 @@ namespace CyanMothUnityEcs
                     MarkComponentChanged(chunk, archetype, t1);
                     MarkComponentChanged(chunk, archetype, t2);
                     MarkComponentChanged(chunk, archetype, t3);
+                }
+            }
+        }
+
+        internal void ForEachChangedChunkReadOnly<T1, T2, T3, TChanged>(int queryId, int sinceVersion, ChunkAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    action(
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        (T3*)((byte*)chunk + match.Offset3),
+                        chunk->Count);
                 }
             }
         }

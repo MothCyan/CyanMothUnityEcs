@@ -1887,7 +1887,7 @@ QueryCache.GetMatchingArchetypes
 
 也就是说，只要回调执行过，Query 中的组件就会保守更新 ChangeVersion。
 
-后续如果要减少误标，可以再加 `ReadOnly Query`。
+如果系统只是读数据，应该使用 `ForEachReadOnly`，这样可以减少 ChangeVersion 的保守误标。
 
 #### `internal void ForEachChangedChunk<T1, TChanged>(...)`
 
@@ -1915,21 +1915,49 @@ QueryCache.GetMatchingArchetypes
 -> 回调执行后标记 Query 中的可写组件
 ```
 
+#### `internal void ForEachChunkReadOnly<T1>(...)`
+
+执行单组件只读 Chunk 遍历。
+
+它和 `ForEachChunk<T1>` 读取同样的匹配 Archetype 和组件 offset，但不会调用 `MarkComponentChanged`。
+
+#### `internal void ForEachChangedChunkReadOnly<T1, TChanged>(...)`
+
+执行单组件只读 Changed Chunk 遍历。
+
+它会先按 ChangeVersion 跳过没变化的 Chunk，然后只读回调，不更新版本号。
+
 #### `internal void ForEachChunk<T1, T2>(...)`
 
 执行双组件 Chunk 遍历。
+
+#### `internal void ForEachChunkReadOnly<T1, T2>(...)`
+
+执行双组件只读 Chunk 遍历。
 
 #### `internal void ForEachChangedChunk<T1, T2, TChanged>(...)`
 
 执行双组件 Changed Chunk 遍历。
 
+#### `internal void ForEachChangedChunkReadOnly<T1, T2, TChanged>(...)`
+
+执行双组件只读 Changed Chunk 遍历。
+
 #### `internal void ForEachChunk<T1, T2, T3>(...)`
 
 执行三组件 Chunk 遍历。
 
+#### `internal void ForEachChunkReadOnly<T1, T2, T3>(...)`
+
+执行三组件只读 Chunk 遍历。
+
 #### `internal void ForEachChangedChunk<T1, T2, T3, TChanged>(...)`
 
 执行三组件 Changed Chunk 遍历。
+
+#### `internal void ForEachChangedChunkReadOnly<T1, T2, T3, TChanged>(...)`
+
+执行三组件只读 Changed Chunk 遍历。
 
 #### `private static bool ChunkChangedSince(...)`
 
@@ -1969,6 +1997,30 @@ QueryAction<T1,T2,T3>
 ```csharp
 (Entity entity, ref Position position, ref Velocity velocity) => {}
 ```
+
+`QueryAction` 使用 `ref` 参数，表示组件可能被用户修改。
+
+因此普通 `ForEach` 执行后会保守更新对应组件的 ChangeVersion。
+
+### `ReadOnlyQueryAction`
+
+面向只读遍历的逐实体回调：
+
+```text
+ReadOnlyQueryAction<T1>
+ReadOnlyQueryAction<T1,T2>
+ReadOnlyQueryAction<T1,T2,T3>
+```
+
+形态：
+
+```csharp
+(Entity entity, in Position position, in Velocity velocity) => {}
+```
+
+`in` 表示只读引用。
+
+只读遍历不会更新 ChangeVersion，适合统计、查找、渲染数据收集等不修改 ECS 组件的系统。
 
 ### `ChunkAction`
 
@@ -2125,11 +2177,34 @@ ForEach
 -> 调用用户 QueryAction
 ```
 
+这是可写遍历。
+
+即使回调里只是读取字段，底层也无法可靠判断用户有没有写入，因此会保守标记组件变化。
+
+#### `ForEachReadOnly(...)`
+
+易用版只读逐实体遍历。
+
+内部基于只读 Chunk 遍历包装：
+
+```text
+ForEachReadOnly
+-> ForEachChunkReadOnly
+-> for i in count
+-> 调用用户 ReadOnlyQueryAction
+```
+
+它不会更新 ChangeVersion。
+
+如果系统只是读取数据，优先使用这个 API，可以让 `ForEachChanged` 后续跳过更多没变化的 Chunk。
+
 #### `ForEachChunk(...)`
 
 高性能逐 Chunk 遍历。
 
 它会把连续组件数组指针交给用户。
+
+这是可写遍历，会保守更新 ChangeVersion。
 
 #### `ForEachChanged<TChanged>(int sinceVersion, ...)`
 
@@ -2158,6 +2233,16 @@ world.Query<Position, Velocity>().ForEachChanged<Position>(
 过滤粒度是 Chunk，不是单个 Entity
 只要同一个 Chunk 里某个 Position 变了，该 Chunk 内所有匹配实体都会被遍历
 ```
+
+它是可写遍历，回调执行后会保守更新 Query 中组件的 ChangeVersion。
+
+#### `ForEachChangedReadOnly<TChanged>(int sinceVersion, ...)`
+
+只读版 Changed Query。
+
+它同样只遍历变化过的 Chunk，但不会因为读取而再次更新 ChangeVersion。
+
+适合“只对变化数据做统计、同步、收集”的系统。
 
 #### `ForEachChangedChunk<TChanged>(int sinceVersion, ...)`
 
@@ -4223,6 +4308,20 @@ sinceVersion 等于当前 World.ChangeVersion 时不会重复扫
 
 验证只修改 `Velocity` 时，`ForEachChanged<Position>` 不会命中。
 
+### `ForEachReadOnly_DoesNotChangeVersion`
+
+验证只读 Query 能读取组件数据，但不会改变 `World.ChangeVersion`。
+
+### `ForEachWritable_ChangesVersionConservatively`
+
+验证普通 `ForEach` 会按可写访问保守更新 ChangeVersion。
+
+这能避免系统直接通过 `ref` 修改组件时漏掉变化标记。
+
+### `ForEachChangedReadOnly_DoesNotCauseRepeatedMatch`
+
+验证只读 Changed Query 不会因为“读了一次”就把 Chunk 再次标记为变化。
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/SystemPipelineTests.cs`
@@ -4417,7 +4516,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第八项：
+当前已经实现到阶段 H 的 Advanced Optimization 第九项：
 
 ```text
 Component 类型身份
@@ -4457,6 +4556,7 @@ CommandBuffer payload 栈顶回收
 Archetype TypeIndex 查表
 Chunk ChangeVersion 基础设施
 Changed Query 过滤 API
+ReadOnly Query
 ```
 
 还没有实现：
@@ -4471,7 +4571,6 @@ ArchetypePrefab
 更完整的便捷 Command API
 CommandBuffer 回放排序优化
 Enableable Component
-ReadOnly Query
 Jobs/Burst
 ```
 
@@ -4622,4 +4721,15 @@ QueryCache 返回匹配 Archetype
 回调执行后按可写 Query 保守标记组件变化
 ```
 
-下一步建议继续阶段 H：做 `ReadOnly Query` 或 `Enableable Component`。前者能减少普通 Query 对 ChangeVersion 的保守误标，后者能减少 Add/Remove 带来的 Archetype 迁移。
+ReadOnly Query 链路：
+
+```text
+用户调用 ForEachReadOnly / ForEachChangedReadOnly
+Query 仍然复用同一份 QueryCache 和 offset 缓存
+逐实体回调用 in 参数传递组件
+World.ForEachChunkReadOnly 执行 Chunk 遍历
+不调用 MarkComponentChanged
+不会污染 Changed Query 的后续过滤结果
+```
+
+下一步建议继续阶段 H：做 `Enableable Component` 或系统级 `LastSystemVersion`。前者能减少 Add/Remove 带来的 Archetype 迁移，后者能让系统不用手动管理 `sinceVersion`。

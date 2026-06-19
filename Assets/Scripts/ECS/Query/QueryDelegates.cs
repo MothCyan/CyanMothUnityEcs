@@ -3,11 +3,23 @@ namespace CyanMothUnityEcs
     public delegate void QueryAction<T1>(Entity entity, ref T1 c1)
         where T1 : unmanaged, IComponentData;
 
+    public delegate void ReadOnlyQueryAction<T1>(Entity entity, in T1 c1)
+        where T1 : unmanaged, IComponentData;
+
     public delegate void QueryAction<T1, T2>(Entity entity, ref T1 c1, ref T2 c2)
         where T1 : unmanaged, IComponentData
         where T2 : unmanaged, IComponentData;
 
+    public delegate void ReadOnlyQueryAction<T1, T2>(Entity entity, in T1 c1, in T2 c2)
+        where T1 : unmanaged, IComponentData
+        where T2 : unmanaged, IComponentData;
+
     public delegate void QueryAction<T1, T2, T3>(Entity entity, ref T1 c1, ref T2 c2, ref T3 c3)
+        where T1 : unmanaged, IComponentData
+        where T2 : unmanaged, IComponentData
+        where T3 : unmanaged, IComponentData;
+
+    public delegate void ReadOnlyQueryAction<T1, T2, T3>(Entity entity, in T1 c1, in T2 c2, in T3 c3)
         where T1 : unmanaged, IComponentData
         where T2 : unmanaged, IComponentData
         where T3 : unmanaged, IComponentData;

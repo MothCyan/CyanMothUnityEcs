@@ -217,5 +217,68 @@ namespace CyanMothUnityEcs.Tests
                 Assert.AreEqual(0, count);
             }
         }
+
+        [Test]
+        public void ForEachReadOnly_DoesNotChangeVersion()
+        {
+            using (World world = new World())
+            {
+                world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+                int before = world.ChangeVersion;
+                float sum = 0;
+
+                world.Query<Position, Velocity>().ForEachReadOnly((Entity _, in Position position, in Velocity velocity) =>
+                {
+                    sum += position.X + velocity.X;
+                });
+
+                Assert.AreEqual(3, sum);
+                Assert.AreEqual(before, world.ChangeVersion);
+            }
+        }
+
+        [Test]
+        public void ForEachWritable_ChangesVersionConservatively()
+        {
+            using (World world = new World())
+            {
+                world.Create(new Position { X = 1 });
+                int before = world.ChangeVersion;
+
+                world.Query<Position>().ForEach((Entity entity, ref Position position) =>
+                {
+                    float value = position.X;
+                });
+
+                Assert.Greater(world.ChangeVersion, before);
+            }
+        }
+
+        [Test]
+        public void ForEachChangedReadOnly_DoesNotCauseRepeatedMatch()
+        {
+            using (World world = new World())
+            {
+                world.Create(new Position { X = 1 }, new Velocity { X = 2 });
+                int sinceVersion = 0;
+
+                int count = 0;
+                world.Query<Position, Velocity>().ForEachChangedReadOnly<Position>(sinceVersion, (Entity _, in Position position, in Velocity velocity) =>
+                {
+                    count++;
+                });
+
+                Assert.AreEqual(1, count);
+
+                sinceVersion = world.ChangeVersion;
+                count = 0;
+                world.Query<Position, Velocity>().ForEachChangedReadOnly<Position>(sinceVersion, (Entity _, in Position position, in Velocity velocity) =>
+                {
+                    count++;
+                });
+
+                Assert.AreEqual(0, count);
+            }
+        }
     }
 }
