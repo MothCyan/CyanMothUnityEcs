@@ -60,6 +60,15 @@ namespace CyanMothUnityEcs
             _world.ForEachChunk(_queryId, action);
         }
 
+        public void ForEachEnabledChunk<TEnabled>(EnabledChunkAction<T1> action)
+            where TEnabled : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            _world.ForEachEnabledChunk<T1, TEnabled>(_queryId, action);
+        }
+
         public void ForEachChanged<TChanged>(int sinceVersion, QueryAction<T1> action)
             where TChanged : unmanaged, IComponentData
         {
@@ -167,6 +176,15 @@ namespace CyanMothUnityEcs
                 throw new ArgumentNullException(nameof(action));
 
             _world.ForEachChunk(_queryId, action);
+        }
+
+        public void ForEachEnabledChunk<TEnabled>(EnabledChunkAction<T1, T2> action)
+            where TEnabled : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            _world.ForEachEnabledChunk<T1, T2, TEnabled>(_queryId, action);
         }
 
         public void ForEachChanged<TChanged>(int sinceVersion, QueryAction<T1, T2> action)
@@ -277,6 +295,15 @@ namespace CyanMothUnityEcs
                 throw new ArgumentNullException(nameof(action));
 
             _world.ForEachChunk(_queryId, action);
+        }
+
+        public void ForEachEnabledChunk<TEnabled>(EnabledChunkAction<T1, T2, T3> action)
+            where TEnabled : unmanaged, IComponentData
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            _world.ForEachEnabledChunk<T1, T2, T3, TEnabled>(_queryId, action);
         }
 
         public void ForEachChanged<TChanged>(int sinceVersion, QueryAction<T1, T2, T3> action)

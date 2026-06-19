@@ -2044,6 +2044,27 @@ chunk->ChangeVersions[changedSlot] > sinceVersion
 
 定义 Query 遍历时用户传入的回调。
 
+### `EnabledChunk`
+
+高性能 Chunk 遍历时使用的 enabled mask 视图。
+
+字段：
+
+```text
+Mask：指向 Chunk 内 enabled bitset；如果为 null，表示全部启用
+Count：当前 Chunk 实体数量
+```
+
+API：
+
+```csharp
+bool IsEnabled(int slot)
+```
+
+它按 slot 判断当前行是否启用。
+
+当 `Mask == null` 时，`IsEnabled` 会把合法 slot 视为 enabled。
+
 ### `QueryAction`
 
 面向易用的逐实体回调：
@@ -2098,6 +2119,34 @@ ChunkAction<T1,T2,T3>
 
 ```csharp
 (Entity* entities, Position* positions, Velocity* velocities, int count) => {}
+```
+
+### `EnabledChunkAction`
+
+面向性能的逐 Chunk + enabled mask 回调：
+
+```text
+EnabledChunkAction<T1>
+EnabledChunkAction<T1,T2>
+EnabledChunkAction<T1,T2,T3>
+```
+
+形态：
+
+```csharp
+(EnabledChunk enabled, Entity* entities, Position* positions, int count) => {}
+```
+
+用户可以在循环里写：
+
+```csharp
+for (int i = 0; i < count; i++)
+{
+    if (!enabled.IsEnabled(i))
+        continue;
+
+    // 处理启用行
+}
 ```
 
 ---
@@ -2278,6 +2327,33 @@ ForEachReadOnly
 ChunkAction 直接暴露整块连续数组
 第一版不会自动压缩或过滤 disabled 实体
 需要用户自己检查 enabled 状态，或使用逐实体 ForEach / ForEachReadOnly
+```
+
+#### `ForEachEnabledChunk<TEnabled>(...)`
+
+高性能逐 Chunk 遍历，同时传入指定组件 `TEnabled` 的 enabled mask。
+
+示例：
+
+```csharp
+query.ForEachEnabledChunk<Active>(
+    (EnabledChunk enabled, Entity* entities, Active* actives, Position* positions, int count) =>
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if (!enabled.IsEnabled(i))
+                continue;
+
+            // 处理启用行
+        }
+    });
+```
+
+注意：
+
+```text
+TEnabled 必须包含在当前 Query 中
+如果 TEnabled 不是 IEnableableComponent，Mask 为 null，表示全部启用
 ```
 
 #### `ForEachChanged<TChanged>(int sinceVersion, ...)`
@@ -4492,6 +4568,14 @@ sinceVersion 等于当前 World.ChangeVersion 时不会重复扫
 
 验证只读 Changed Query 不会因为“读了一次”就把 Chunk 再次标记为变化。
 
+### `ForEachEnabledChunk_ProvidesEnableMask`
+
+验证高性能 Chunk API 可以拿到 enableable 组件的 enabled mask，并按 slot 跳过 disabled 行。
+
+### `ForEachEnabledChunk_NonEnableableComponentActsAsAllEnabled`
+
+验证对普通组件调用 `ForEachEnabledChunk<T>` 时，`EnabledChunk.Mask` 为空，并按全 enabled 处理。
+
 ---
 
 ## `Assets/Scripts/ECS/Tests/SystemPipelineTests.cs`
@@ -4709,7 +4793,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第十一项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十二项：
 
 ```text
 Component 类型身份
@@ -4752,6 +4836,7 @@ Changed Query 过滤 API
 ReadOnly Query
 LastSystemVersion
 Enableable Component
+EnabledChunkAction
 ```
 
 还没有实现：
@@ -4951,4 +5036,15 @@ disabled 实体不进入 ForEach / ForEachReadOnly 回调
 结构迁移和 swap-remove 会复制 enabled bit
 ```
 
-下一步建议继续阶段 H：做更细粒度的 Query 写权限声明，或继续补 Enableable 的 ChunkAction 手动过滤辅助 API。前者能进一步减少 ChangeVersion 的保守误标，后者能让高性能 Chunk 遍历也更容易处理 disabled 实体。
+EnabledChunkAction 链路：
+
+```text
+用户调用 ForEachEnabledChunk<TEnabled>
+World 找到 TEnabled 在 Archetype 中的 type slot
+如果 TEnabled 是 enableable，读取 Chunk enabled bitset
+如果 TEnabled 不是 enableable，传入 Mask = null
+回调拿到 EnabledChunk + 连续组件数组
+用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
+```
+
+下一步建议继续阶段 H：做更细粒度的 Query 写权限声明，或优化 enableable 槽位缓存。前者能进一步减少 ChangeVersion 的保守误标，后者能减少 Query 每次判断 enabled 时的查表成本。

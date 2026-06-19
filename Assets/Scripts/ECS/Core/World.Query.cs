@@ -1,3 +1,5 @@
+using System;
+
 namespace CyanMothUnityEcs
 {
     public unsafe sealed partial class World
@@ -55,6 +57,32 @@ namespace CyanMothUnityEcs
                         continue;
 
                     action(GetEntityArray(chunk, archetype), (T1*)((byte*)chunk + match.Offset1), chunk->Count);
+                    MarkComponentChanged(chunk, archetype, t1);
+                }
+            }
+        }
+
+        internal void ForEachEnabledChunk<T1, TEnabled>(int queryId, EnabledChunkAction<T1> action)
+            where T1 : unmanaged, IComponentData
+            where TEnabled : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType enabledType = TypeRegistry.Get<TEnabled>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    action(
+                        GetEnabledChunk(chunk, archetype, enabledType),
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        chunk->Count);
                     MarkComponentChanged(chunk, archetype, t1);
                 }
             }
@@ -167,6 +195,36 @@ namespace CyanMothUnityEcs
             }
         }
 
+        internal void ForEachEnabledChunk<T1, T2, TEnabled>(int queryId, EnabledChunkAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where TEnabled : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType enabledType = TypeRegistry.Get<TEnabled>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    action(
+                        GetEnabledChunk(chunk, archetype, enabledType),
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        chunk->Count);
+                    MarkComponentChanged(chunk, archetype, t1);
+                    MarkComponentChanged(chunk, archetype, t2);
+                }
+            }
+        }
+
         internal void ForEachChunkReadOnly<T1, T2>(int queryId, ChunkAction<T1, T2> action)
             where T1 : unmanaged, IComponentData
             where T2 : unmanaged, IComponentData
@@ -262,6 +320,40 @@ namespace CyanMothUnityEcs
                         continue;
 
                     action(
+                        GetEntityArray(chunk, archetype),
+                        (T1*)((byte*)chunk + match.Offset1),
+                        (T2*)((byte*)chunk + match.Offset2),
+                        (T3*)((byte*)chunk + match.Offset3),
+                        chunk->Count);
+                    MarkComponentChanged(chunk, archetype, t1);
+                    MarkComponentChanged(chunk, archetype, t2);
+                    MarkComponentChanged(chunk, archetype, t3);
+                }
+            }
+        }
+
+        internal void ForEachEnabledChunk<T1, T2, T3, TEnabled>(int queryId, EnabledChunkAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+            where TEnabled : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType t3 = TypeRegistry.Get<T3>();
+            ComponentType enabledType = TypeRegistry.Get<TEnabled>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    action(
+                        GetEnabledChunk(chunk, archetype, enabledType),
                         GetEntityArray(chunk, archetype),
                         (T1*)((byte*)chunk + match.Offset1),
                         (T2*)((byte*)chunk + match.Offset2),
@@ -387,6 +479,18 @@ namespace CyanMothUnityEcs
             }
 
             return true;
+        }
+
+        private static EnabledChunk GetEnabledChunk(Chunk* chunk, Archetype archetype, ComponentType enabledType)
+        {
+            int typeSlot = archetype.GetTypeSlot(enabledType.Index);
+            if (typeSlot < 0)
+                throw new InvalidOperationException($"Archetype {archetype.Id} does not contain component {enabledType.ManagedType.Name}.");
+
+            if (!enabledType.IsEnableable)
+                return new EnabledChunk(null, chunk->Count);
+
+            return new EnabledChunk(GetEnabledMask(chunk, archetype, typeSlot), chunk->Count);
         }
 
         private static Entity* GetEntityArray(Chunk* chunk, Archetype archetype)

@@ -23,6 +23,11 @@ namespace CyanMothUnityEcs.Tests
             public int Value;
         }
 
+        private struct Active : IEnableableComponent
+        {
+            public int Value;
+        }
+
         [SetUp]
         public void SetUp()
         {
@@ -278,6 +283,60 @@ namespace CyanMothUnityEcs.Tests
                 });
 
                 Assert.AreEqual(0, count);
+            }
+        }
+
+        [Test]
+        public void ForEachEnabledChunk_ProvidesEnableMask()
+        {
+            using (World world = new World())
+            {
+                Entity first = world.Create(new Active { Value = 1 }, new Position { X = 10 });
+                Entity second = world.Create(new Active { Value = 2 }, new Position { X = 20 });
+                world.SetComponentEnabled<Active>(second, false);
+
+                int enabledCount = 0;
+                int activeSum = 0;
+                float positionSum = 0;
+                world.Query<Active, Position>().ForEachEnabledChunk<Active>((EnabledChunk enabled, Entity* entities, Active* actives, Position* positions, int count) =>
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (!enabled.IsEnabled(i))
+                            continue;
+
+                        enabledCount++;
+                        activeSum += actives[i].Value;
+                        positionSum += positions[i].X;
+                    }
+                });
+
+                Assert.AreEqual(1, enabledCount);
+                Assert.AreEqual(1, activeSum);
+                Assert.AreEqual(10, positionSum);
+                Assert.IsTrue(world.IsComponentEnabled<Active>(first));
+            }
+        }
+
+        [Test]
+        public void ForEachEnabledChunk_NonEnableableComponentActsAsAllEnabled()
+        {
+            using (World world = new World())
+            {
+                world.Create(new Position { X = 1 });
+                world.Create(new Position { X = 2 });
+
+                int countFromMask = 0;
+                world.Query<Position>().ForEachEnabledChunk<Position>((EnabledChunk enabled, Entity* entities, Position* positions, int count) =>
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (enabled.IsEnabled(i))
+                            countFromMask++;
+                    }
+                });
+
+                Assert.AreEqual(2, countFromMask);
             }
         }
     }
