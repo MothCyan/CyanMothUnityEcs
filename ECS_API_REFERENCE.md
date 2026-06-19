@@ -1502,6 +1502,56 @@ Tag 组件没有数据区，直接跳过
 不绕过 EntityStore
 ```
 
+### ArchetypePrefab
+
+`ArchetypePrefab` 是“同类实体模板”。
+
+它缓存：
+
+```text
+所属 World
+目标 Archetype
+组件 ComponentType
+默认组件值
+```
+
+作用：
+
+```text
+少做 TypeRegistry 查找
+少做 Archetype 查找
+把大量同类实体创建变成模板实例化
+给后续 Authoring 替代 Baker 提供落点
+```
+
+#### `CreatePrefab<T1>(T1 c1)`
+
+创建单组件实体模板。
+
+#### `CreatePrefab<T1, T2>(T1 c1, T2 c2)`
+
+创建双组件实体模板。
+
+#### `CreatePrefab<T1, T2, T3>(T1 c1, T2 c2, T3 c3)`
+
+创建三组件实体模板。
+
+#### `Instantiate(prefab)`
+
+根据模板创建一个实体，并写入模板里的默认组件值。
+
+#### `InstantiateMany(prefab, count, entities)`
+
+根据模板批量创建实体，把结果写入调用方提供的 `Entity[]`。
+
+注意：
+
+```text
+Prefab 绑定创建它的 World
+不能拿到另一个 World 里实例化
+批量实例化仍然按 Chunk 分批写入
+```
+
 ### 非分配版本
 
 #### `void CreateMany<T1>(T1[] c1, Entity[] entities)`
@@ -4989,7 +5039,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第十五项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十六项：
 
 ```text
 Component 类型身份
@@ -5017,6 +5067,7 @@ World.GetStats
 EcsBenchmarkResult
 EcsBenchmark
 World.CreateMany
+ArchetypePrefab
 QuerySystem<T1>
 QuerySystem<T1,T2>
 QuerySystem<T1,T2,T3>
@@ -5046,7 +5097,6 @@ SpriteRenderer Bridge
 批量渲染 Bridge
 Debug Window 可视化面板
 更细的系统耗时统计
-ArchetypePrefab
 更完整的便捷 Command API
 Jobs/Burst
 ```
@@ -5129,6 +5179,27 @@ while 还有数据未写完
   -> 连续创建 Entity 并写 Entity[]
   -> 连续写组件数组
   -> Chunk 写满则移出 free list
+```
+
+ArchetypePrefab 实例化链路：
+
+```text
+用户调用 World.CreatePrefab
+TypeRegistry 获取组件类型
+ArchetypeStore 获取最终 Archetype
+Prefab 缓存 World + Archetype + ComponentType + 默认组件值
+
+用户调用 Instantiate
+校验 Prefab 属于当前 World
+AllocateEntity 直接进入缓存 Archetype
+写入默认组件值
+
+用户调用 InstantiateMany
+校验 Prefab 属于当前 World
+按 Chunk 可用容量分批
+连续创建 Entity
+对每个组件重复写入默认值
+每个 Chunk 每类组件只标记一次 ChangeVersion
 ```
 
 CommandBuffer raw payload 链路：
@@ -5282,4 +5353,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续阶段 H：做 ArchetypePrefab，或做 Query 多写入组件声明。前者能把大量同类实体创建的 Archetype 查找和初始组件写入模板化，后者适合一个系统同时写两个以上组件但仍不想保守标记整个 Query 的场景。
+下一步建议进入轻量版收口链路：先做基础 Authoring 替代 Baker，把 Unity 场景中的配置转换成 ArchetypePrefab 或直接批量 Instantiate；然后做 SpriteRenderer Bridge 和最小可用 Demo。这样轻量 ECS 才能从“底层能跑”走到“用户能顺手使用”。
