@@ -13,6 +13,7 @@ namespace CyanMothUnityEcs
         private readonly ChunkAllocator _chunks;
         private readonly CommandBuffer _commands;
         private readonly QueryCache _queryCache;
+        private int _changeVersion;
         private bool _disposed;
 
         public World()
@@ -26,6 +27,7 @@ namespace CyanMothUnityEcs
 
         public int CreatedEntityCapacity => _entities.CreatedCapacity;
         public int ArchetypeCount => _archetypes.Count;
+        public int ChangeVersion => _changeVersion;
         public CommandBuffer Commands => _commands;
 
         public bool IsAlive(Entity entity)

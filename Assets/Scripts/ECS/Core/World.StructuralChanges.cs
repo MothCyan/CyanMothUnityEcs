@@ -146,15 +146,35 @@ namespace CyanMothUnityEcs
                 byte* source = (byte*)sourceChunk + sourceOffset + stride * sourceSlot;
                 byte* target = (byte*)targetChunk + targetOffset + stride * targetSlot;
                 UnsafeUtil.Copy(source, target, stride);
+                CopyChangeVersion(sourceArchetype, sourceChunk, targetArchetype, targetChunk, type);
             }
         }
 
-        private static void WriteRawComponent(Chunk* chunk, Archetype archetype, int slot, ComponentType type, void* data)
+        private static void CopyChangeVersion(
+            Archetype sourceArchetype,
+            Chunk* sourceChunk,
+            Archetype targetArchetype,
+            Chunk* targetChunk,
+            ComponentType type)
+        {
+            if (sourceChunk->ChangeVersions == null || targetChunk->ChangeVersions == null)
+                return;
+
+            int sourceSlot = sourceArchetype.GetTypeSlot(type.Index);
+            int targetSlot = targetArchetype.GetTypeSlot(type.Index);
+            if (sourceSlot >= 0 && targetSlot >= 0)
+                targetChunk->ChangeVersions[targetSlot] = Math.Max(
+                    targetChunk->ChangeVersions[targetSlot],
+                    sourceChunk->ChangeVersions[sourceSlot]);
+        }
+
+        private void WriteRawComponent(Chunk* chunk, Archetype archetype, int slot, ComponentType type, void* data)
         {
             int offset = archetype.GetComponentOffset(type.Index);
             int stride = archetype.GetComponentStride(type.Index);
             byte* target = (byte*)chunk + offset + stride * slot;
             UnsafeUtil.Copy(data, target, stride);
+            MarkComponentChanged(chunk, archetype, type);
         }
 
         private void WriteExistingRawComponent(Entity entity, ComponentType type, void* data)

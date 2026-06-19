@@ -73,9 +73,16 @@ namespace CyanMothUnityEcs
                 return archetype.FirstFreeChunk;
 
             Chunk* chunk = _chunks.Allocate(archetype.Id, archetype.Layout.Capacity);
+            InitializeChunkForArchetype(chunk, archetype);
             LinkChunk(archetype, chunk);
             AddToFreeList(archetype, chunk);
             return chunk;
+        }
+
+        private static void InitializeChunkForArchetype(Chunk* chunk, Archetype archetype)
+        {
+            chunk->ChangeVersions = (int*)((byte*)chunk + archetype.Layout.ChangeVersionOffset);
+            UnsafeUtil.Clear(chunk->ChangeVersions, archetype.Types.Length * archetype.Layout.ChangeVersionStride);
         }
 
         private static void LinkChunk(Archetype archetype, Chunk* chunk)
@@ -126,7 +133,7 @@ namespace CyanMothUnityEcs
             entities[slot] = entity;
         }
 
-        private static void WriteComponent<T>(Chunk* chunk, Archetype archetype, int slot, ComponentType type, T component)
+        private void WriteComponent<T>(Chunk* chunk, Archetype archetype, int slot, ComponentType type, T component)
             where T : unmanaged, IComponentData
         {
             if (type.IsTag)
@@ -136,6 +143,17 @@ namespace CyanMothUnityEcs
             int stride = archetype.GetComponentStride(type.Index);
             byte* target = (byte*)chunk + offset + stride * slot;
             UnsafeUtil.Copy(&component, target, stride);
+            MarkComponentChanged(chunk, archetype, type);
+        }
+
+        private void MarkComponentChanged(Chunk* chunk, Archetype archetype, ComponentType type)
+        {
+            if (type.IsTag || chunk->ChangeVersions == null)
+                return;
+
+            int slot = archetype.GetTypeSlot(type.Index);
+            if (slot >= 0)
+                chunk->ChangeVersions[slot] = ++_changeVersion;
         }
     }
 }

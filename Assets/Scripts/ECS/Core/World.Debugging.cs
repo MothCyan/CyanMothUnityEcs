@@ -34,5 +34,26 @@ namespace CyanMothUnityEcs
                 _commands.Count,
                 utilization);
         }
+
+        /// <summary>
+        /// 获取实体所在 Chunk 上指定组件的 ChangeVersion。
+        /// 这个 API 面向调试和测试，后续 Query change filter 会复用同一份底层数据。
+        /// </summary>
+        public int GetChangeVersion<T>(Entity entity)
+            where T : unmanaged, IComponentData
+        {
+            ThrowIfDisposed();
+
+            ComponentType type = TypeRegistry.Get<T>();
+            Chunk* chunk = GetEntityChunk(entity, out _, out Archetype archetype);
+            int slot = archetype.GetTypeSlot(type.Index);
+            if (slot < 0)
+                throw new InvalidOperationException($"实体不包含组件 {type.ManagedType.Name}。");
+
+            if (chunk->ChangeVersions == null)
+                return 0;
+
+            return chunk->ChangeVersions[slot];
+        }
     }
 }

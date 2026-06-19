@@ -967,6 +967,14 @@ World.Query<T>
 -> ForEachChunk 时拿匹配 Archetype 列表
 ```
 
+#### `private int _changeVersion`
+
+World 级别的组件写入版本号。
+
+每当某个 Chunk 上的某类组件被写入，World 会递增这个值，并把新值写入该 Chunk 的 `ChangeVersions` 表。
+
+它的用途不是给每个实体做版本，而是给后续 Query 提供“这个 Chunk 的某类组件是否变过”的快速判断依据。
+
 #### `private bool _disposed`
 
 标记 World 是否已经释放。
@@ -982,6 +990,12 @@ World.Query<T>
 #### `public int ArchetypeCount`
 
 返回当前已经创建的 Archetype 数量。
+
+#### `public int ChangeVersion`
+
+返回当前 World 的全局写入版本号。
+
+它会随组件写入递增，当前主要用于测试、调试和后续 Changed Query 过滤。
 
 #### `public CommandBuffer Commands`
 
@@ -1060,6 +1074,20 @@ Chunk 利用率
 注意：
 
 这个 API 面向调试面板和 Benchmark，不建议在热路径系统中频繁调用。
+
+#### `int GetChangeVersion<T>(Entity entity)`
+
+获取某个实体所在 Chunk 上，组件 `T` 对应的 ChangeVersion。
+
+注意这里返回的是 Chunk 级版本，不是单个实体版本：
+
+```text
+同一个 Chunk 中多个实体共享同一份 Position 版本槽
+某次批量写入 Position 后，这个 Chunk 的 Position 版本会更新
+后续 Query 可以据此跳过没有变化的 Chunk
+```
+
+如果实体没有组件 `T`，会抛出异常。
 
 ---
 
@@ -1366,8 +1394,20 @@ GetWritableChunk
 
 ```text
 ChunkAllocator.Allocate
+-> InitializeChunkForArchetype
 -> LinkChunk
 -> AddToFreeList
+```
+
+#### `private static void InitializeChunkForArchetype(Chunk* chunk, Archetype archetype)`
+
+初始化新 Chunk 内和 Archetype 相关的派生指针。
+
+当前会做两件事：
+
+```text
+根据 ArchetypeLayout.ChangeVersionOffset 设置 chunk->ChangeVersions
+清空每个组件槽位的 ChangeVersion
 ```
 
 #### `private static void LinkChunk(Archetype archetype, Chunk* chunk)`
@@ -1386,11 +1426,28 @@ ChunkAllocator.Allocate
 
 把 Entity 句柄写入 Chunk 内的 `Entity[]`。
 
-#### `private static void WriteComponent<T>(...)`
+#### `private void WriteComponent<T>(...)`
 
 把组件数据写入 Chunk 内对应组件数组的 slot。
 
 Tag 组件没有数据区，因此会直接返回。
+
+写入普通组件后，会调用 `MarkComponentChanged` 更新 Chunk 的组件版本号。
+
+#### `private void MarkComponentChanged(Chunk* chunk, Archetype archetype, ComponentType type)`
+
+把某个 Chunk 上某类组件标记为“已变化”。
+
+流程：
+
+```text
+Tag 组件没有数据区，直接跳过
+通过 type.Index 找到组件在 Archetype.Types 中的 slot
+递增 World._changeVersion
+写入 chunk->ChangeVersions[slot]
+```
+
+这是后续 Changed Query 的底层基础。
 
 ---
 
@@ -1483,7 +1540,7 @@ chunk.Count++
 满 Chunk 判断
 ```
 
-#### `private static void WriteComponentRange<T>(...)`
+#### `private void WriteComponentRange<T>(...)`
 
 把组件数组的一段连续数据写入 Chunk 的组件数组。
 
@@ -1497,6 +1554,10 @@ fixed 住源组件数组
 ```
 
 Tag 组件没有数据区，会直接返回。
+
+批量写入完成后，会对该 Chunk 的该组件类型只标记一次 ChangeVersion。
+
+这意味着同一批落在同一 Chunk 的实体共享同一个版本号，符合 Chunk 级过滤的设计目标。
 
 #### `private static void ValidateCreateManyInputs<T>(...)`
 
@@ -1699,11 +1760,31 @@ GetEntityChunk
 
 Tag 组件会跳过，因为它没有数据区。
 
-#### `private static void WriteRawComponent(...)`
+拷贝普通组件数据时，会同步调用 `CopyChangeVersion`，让迁移后的 Chunk 保留共有组件原本的变化版本。
+
+#### `private static void CopyChangeVersion(...)`
+
+跨 Archetype 迁移时，把共有组件在源 Chunk 上的 ChangeVersion 合并到目标 Chunk。
+
+这样做是为了避免结构迁移把“没有重新写过的组件”误标成变化。
+
+如果目标 Chunk 原本已经有更高版本，会保留更高版本，避免版本号倒退。
+
+例如：
+
+```text
+实体从 [Position] 迁移到 [Position, Velocity]
+Position 只是被搬家，没有业务写入
+Velocity 是新增组件，需要标记变化
+```
+
+#### `private void WriteRawComponent(...)`
 
 写入新增组件的原始字节。
 
 当前由 `AddRaw` 和迁移流程调用。
+
+写入后会调用 `MarkComponentChanged`，把新增组件标记为变化。
 
 #### `private void WriteExistingRawComponent(...)`
 
@@ -3050,9 +3131,20 @@ NextFree 服务 ChunkAllocator 或 Archetype 的空闲链表
 
 #### `public int* ChangeVersions`
 
-后续 ChangeVersion 优化预留字段。
+Chunk 内每个组件槽位对应的变化版本表。
 
-第一阶段可以保持 `null`。
+它指向 Chunk native 内存中的一小段 `int[]`：
+
+```text
+ChangeVersions[0] 对应 Archetype.Types[0]
+ChangeVersions[1] 对应 Archetype.Types[1]
+ChangeVersions[2] 对应 Archetype.Types[2]
+...
+```
+
+组件写入时会更新对应槽位。
+
+它不记录每个实体的变化，而是记录“这个 Chunk 上某类组件最后一次被写入的版本”。
 
 ### API
 
@@ -3206,6 +3298,18 @@ World 销毁时必须最终调用它，避免 native memory 泄漏。
 
 Chunk Header 占用的字节数，已经按 64 字节对齐。
 
+#### `public readonly int ChangeVersionOffset`
+
+Chunk 内 `ChangeVersions` 表的起始偏移。
+
+它位于 Header 后面、Entity 数组前面。
+
+#### `public readonly int ChangeVersionStride`
+
+单个 ChangeVersion 槽位占用的字节数。
+
+当前等于 `sizeof(int)`。
+
 #### `public readonly int EntityOffset`
 
 `Entity[]` 在 Chunk 内的起始偏移。
@@ -3262,11 +3366,14 @@ Tag 组件 stride 为 0。
 
 ```text
 Header
+-> ChangeVersions[]
 -> Entity[]
 -> ComponentArray[0]
 -> ComponentArray[1]
 -> ...
 ```
+
+`ChangeVersions[]` 是固定区，只和组件类型数量有关，不随 Chunk 容量增长。
 
 每个组件数组都会按该组件的 `Align` 对齐。
 
@@ -3867,6 +3974,41 @@ TestTag
 
 ---
 
+## `Assets/Scripts/ECS/Tests/ChangeVersionTests.cs`
+
+测试 Chunk ChangeVersion 基础设施。
+
+### 内部测试组件
+
+```text
+Position
+Velocity
+```
+
+### `Create_WritesInitialChangeVersion`
+
+验证创建实体并写入组件后，该 Chunk 上对应组件的 ChangeVersion 大于 0。
+
+### `Set_IncrementsChangeVersion`
+
+验证 `World.Set<T>` 覆盖组件数据时，会递增该组件的 ChangeVersion。
+
+### `CreateMany_WritesChangeVersion`
+
+验证批量创建会给写入的组件设置 ChangeVersion。
+
+同一批实体落在同一 Chunk 时，它们查询到的是同一个 Chunk 级版本号。
+
+### `Add_SetsNewComponentChangeVersion`
+
+验证 `World.Add<T>` 新增组件后，新组件会被标记为变化。
+
+### `Add_DoesNotLowerSharedComponentChangeVersion`
+
+验证实体迁移到已有目标 Chunk 时，共有组件的 ChangeVersion 不会被较旧实体覆盖回低版本。
+
+---
+
 ## `Assets/Scripts/ECS/Tests/CommandBufferTests.cs`
 
 测试 `CommandBuffer` 和 `World.Playback`。
@@ -4174,7 +4316,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第六项：
+当前已经实现到阶段 H 的 Advanced Optimization 第七项：
 
 ```text
 Component 类型身份
@@ -4212,6 +4354,7 @@ CommandBuffer raw payload
 CommandBuffer 同实体命令合并
 CommandBuffer payload 栈顶回收
 Archetype TypeIndex 查表
+Chunk ChangeVersion 基础设施
 ```
 
 还没有实现：
@@ -4226,7 +4369,7 @@ ArchetypePrefab
 更完整的便捷 Command API
 CommandBuffer 回放排序优化
 Enableable Component
-ChangeVersion 过滤
+Changed Query 过滤 API
 Jobs/Burst
 ```
 
@@ -4353,4 +4496,16 @@ GetComponentStride(typeIndex)
 避免每次线性扫描 Types
 ```
 
-下一步建议继续阶段 H：做 `Enableable Component` 或 `ChangeVersion`。前者能减少 Add/Remove 迁移，后者能让系统只扫变化过的 Chunk。
+Chunk ChangeVersion 链路：
+
+```text
+ArchetypeLayout 在 Header 后预留 ChangeVersions[]
+Chunk 初始化时绑定 chunk->ChangeVersions
+Create / Set / Add / CreateMany 写入组件
+MarkComponentChanged 递增 World.ChangeVersion
+写入 chunk->ChangeVersions[componentSlot]
+结构迁移时 CopyChangeVersion 保留共有组件版本
+调试 API GetChangeVersion<T> 可读取当前 Chunk 组件版本
+```
+
+下一步建议继续阶段 H：做 `Changed Query 过滤 API` 或 `Enableable Component`。前者能真正让系统只扫变化过的 Chunk，后者能减少 Add/Remove 带来的 Archetype 迁移。

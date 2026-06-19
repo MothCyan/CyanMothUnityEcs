@@ -147,7 +147,7 @@ namespace CyanMothUnityEcs
                 RemoveFromFreeList(archetype, chunk);
         }
 
-        private static void WriteComponentRange<T>(
+        private void WriteComponentRange<T>(
             Chunk* chunk,
             Archetype archetype,
             int slotStart,
@@ -169,6 +169,8 @@ namespace CyanMothUnityEcs
                 for (int i = 0; i < count; i++)
                     UnsafeUtil.Copy(sourceBase + i, targetBase + stride * i, stride);
             }
+
+            MarkComponentChanged(chunk, archetype, type);
         }
 
         private static void ValidateCreateManyInputs<T>(T[] components, Entity[] entities, int count)

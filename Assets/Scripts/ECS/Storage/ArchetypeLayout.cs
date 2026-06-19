@@ -4,7 +4,7 @@ namespace CyanMothUnityEcs
 {
     /// <summary>
     /// 描述一个 Archetype 的数据在 Chunk 内部如何排布。
-    /// 它只负责计算偏移和容量，不拥有任何真实内存。
+    /// 它只负责计算偏移和容量，不拥有真实内存。
     /// </summary>
     internal readonly struct ArchetypeLayout
     {
@@ -12,6 +12,8 @@ namespace CyanMothUnityEcs
 
         public readonly int ChunkSize;
         public readonly int HeaderSize;
+        public readonly int ChangeVersionOffset;
+        public readonly int ChangeVersionStride;
         public readonly int EntityOffset;
         public readonly int EntityStride;
         public readonly int Capacity;
@@ -22,6 +24,8 @@ namespace CyanMothUnityEcs
         private ArchetypeLayout(
             int chunkSize,
             int headerSize,
+            int changeVersionOffset,
+            int changeVersionStride,
             int entityOffset,
             int entityStride,
             int capacity,
@@ -31,6 +35,8 @@ namespace CyanMothUnityEcs
         {
             ChunkSize = chunkSize;
             HeaderSize = headerSize;
+            ChangeVersionOffset = changeVersionOffset;
+            ChangeVersionStride = changeVersionStride;
             EntityOffset = entityOffset;
             EntityStride = entityStride;
             Capacity = capacity;
@@ -66,7 +72,8 @@ namespace CyanMothUnityEcs
             if (perEntityBytes <= 0)
                 throw new InvalidOperationException("每个实体至少需要 Entity 句柄空间。");
 
-            int maxCapacity = Math.Max(1, (chunkSize - headerSize) / perEntityBytes);
+            int fixedBytes = UnsafeUtil.Align(headerSize, 4) + types.Length * UnsafeUtil.SizeOf<int>();
+            int maxCapacity = Math.Max(1, (chunkSize - fixedBytes) / perEntityBytes);
 
             for (int capacity = maxCapacity; capacity >= 1; capacity--)
             {
@@ -104,7 +111,12 @@ namespace CyanMothUnityEcs
             int[] componentOffsets = new int[types.Length];
             int[] componentStrides = new int[types.Length];
 
-            int offset = UnsafeUtil.Align(headerSize, 8);
+            int offset = UnsafeUtil.Align(headerSize, 4);
+            int changeVersionOffset = offset;
+            int changeVersionStride = UnsafeUtil.SizeOf<int>();
+            offset += changeVersionStride * types.Length;
+
+            offset = UnsafeUtil.Align(offset, 8);
             int entityOffset = offset;
             offset += entityStride * capacity;
 
@@ -134,6 +146,8 @@ namespace CyanMothUnityEcs
             layout = new ArchetypeLayout(
                 chunkSize,
                 headerSize,
+                changeVersionOffset,
+                changeVersionStride,
                 entityOffset,
                 entityStride,
                 capacity,
