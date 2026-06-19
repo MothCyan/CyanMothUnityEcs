@@ -13,13 +13,19 @@ namespace CyanMothUnityEcs
         public readonly int Offset1;
         public readonly int Offset2;
         public readonly int Offset3;
+        public readonly int Slot1;
+        public readonly int Slot2;
+        public readonly int Slot3;
 
-        public QueryArchetypeMatch(int archetypeId, int offset1, int offset2, int offset3)
+        public QueryArchetypeMatch(int archetypeId, int offset1, int offset2, int offset3, int slot1, int slot2, int slot3)
         {
             ArchetypeId = archetypeId;
             Offset1 = offset1;
             Offset2 = offset2;
             Offset3 = offset3;
+            Slot1 = slot1;
+            Slot2 = slot2;
+            Slot3 = slot3;
         }
     }
 
@@ -67,14 +73,6 @@ namespace CyanMothUnityEcs
             return _records[queryId].Matches;
         }
 
-        public int[] GetComponentTypeIndices(int queryId)
-        {
-            if ((uint)queryId >= _records.Count)
-                throw new ArgumentOutOfRangeException(nameof(queryId));
-
-            return _records[queryId].ComponentTypeIndices;
-        }
-
         private void Refresh(int queryId)
         {
             QueryRecord record = _records[queryId];
@@ -92,7 +90,10 @@ namespace CyanMothUnityEcs
                     archetype.Id,
                     GetOffset(archetype, record.ComponentTypeIndices, 0),
                     GetOffset(archetype, record.ComponentTypeIndices, 1),
-                    GetOffset(archetype, record.ComponentTypeIndices, 2)));
+                    GetOffset(archetype, record.ComponentTypeIndices, 2),
+                    GetSlot(archetype, record.ComponentTypeIndices, 0),
+                    GetSlot(archetype, record.ComponentTypeIndices, 1),
+                    GetSlot(archetype, record.ComponentTypeIndices, 2)));
             }
 
             record.Matches = matches.ToArray();
@@ -106,6 +107,14 @@ namespace CyanMothUnityEcs
                 return ArchetypeLayout.MissingOffset;
 
             return archetype.GetComponentOffset(componentTypeIndices[index]);
+        }
+
+        private static int GetSlot(Archetype archetype, int[] componentTypeIndices, int index)
+        {
+            if (index >= componentTypeIndices.Length)
+                return ArchetypeLayout.MissingOffset;
+
+            return archetype.GetTypeSlot(componentTypeIndices[index]);
         }
 
         private static bool SameComponentTypes(int[] left, int[] right)

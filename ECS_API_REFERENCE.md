@@ -1930,6 +1930,71 @@ ForEachChangedChunk 执行
 
 ### 内部执行方法
 
+#### `internal void ForEach<T1>(int queryId, QueryAction<T1> action)`
+
+执行单组件逐实体可写遍历。
+
+它直接在 World 内部执行，不再通过外层 `Query<T>.ForEach` 包装 `ForEachChunk`。
+
+流程：
+
+```text
+QueryCache.GetMatchingArchetypes
+-> 遍历 Archetype 和 Chunk
+-> 用 QueryArchetypeMatch.Offset1 定位组件数组
+-> 用 QueryArchetypeMatch.Slot1/2/3 判断 enabled bit
+-> 调用 QueryAction
+-> 回调后标记可写组件 ChangeVersion
+```
+
+#### `internal void ForEachReadOnly<T1>(...)`
+
+执行单组件逐实体只读遍历。
+
+它同样使用缓存的 slot 判断 enableable 状态，但不会标记 ChangeVersion。
+
+#### `internal void ForEachChanged<T1, TChanged>(...)`
+
+执行单组件逐实体 Changed 遍历。
+
+先按 Chunk ChangeVersion 跳过未变化 Chunk，再按 enabled slot 过滤实体。
+
+#### `internal void ForEachChangedReadOnly<T1, TChanged>(...)`
+
+执行单组件逐实体只读 Changed 遍历。
+
+#### `internal void ForEach<T1, T2>(...)`
+
+执行双组件逐实体可写遍历。
+
+#### `internal void ForEachReadOnly<T1, T2>(...)`
+
+执行双组件逐实体只读遍历。
+
+#### `internal void ForEachChanged<T1, T2, TChanged>(...)`
+
+执行双组件逐实体 Changed 遍历。
+
+#### `internal void ForEachChangedReadOnly<T1, T2, TChanged>(...)`
+
+执行双组件逐实体只读 Changed 遍历。
+
+#### `internal void ForEach<T1, T2, T3>(...)`
+
+执行三组件逐实体可写遍历。
+
+#### `internal void ForEachReadOnly<T1, T2, T3>(...)`
+
+执行三组件逐实体只读遍历。
+
+#### `internal void ForEachChanged<T1, T2, T3, TChanged>(...)`
+
+执行三组件逐实体 Changed 遍历。
+
+#### `internal void ForEachChangedReadOnly<T1, T2, T3, TChanged>(...)`
+
+执行三组件逐实体只读 Changed 遍历。
+
 #### `internal void ForEachChunk<T1>(int queryId, ChunkAction<T1> action)`
 
 执行单组件 Chunk 遍历。
@@ -2031,6 +2096,22 @@ QueryCache.GetMatchingArchetypes
 changedSlot = archetype.GetTypeSlot(changedType.Index)
 chunk->ChangeVersions[changedSlot] > sinceVersion
 ```
+
+#### `private static bool IsSlotEnabledForQuery(...)`
+
+根据 `QueryArchetypeMatch.Slot1/2/3` 判断某个实体 slot 是否满足 Query 中所有 enableable 组件的启用状态。
+
+它避免每个实体都走：
+
+```text
+queryId -> ComponentTypeIndices -> archetype.GetTypeSlot(typeIndex)
+```
+
+#### `private static bool IsComponentSlotEnabled(...)`
+
+判断某个组件槽位在某个实体 slot 上是否启用。
+
+普通组件永远视为启用。
 
 #### `private static Entity* GetEntityArray(...)`
 
@@ -2188,9 +2269,21 @@ ArchetypeId
 Offset1
 Offset2
 Offset3
+Slot1
+Slot2
+Slot3
 ```
 
 它的作用是把“这个 Query 在这个 Archetype 中该从哪里读组件数组”提前算好。
+
+其中：
+
+```text
+Offset1/2/3：组件数组在 Chunk 内的字节偏移
+Slot1/2/3：组件在 Archetype.Types 中的槽位
+```
+
+`Slot1/2/3` 主要服务 enableable 组件过滤。逐实体 Query 可以直接用 slot 找 enabled bitset，不需要每个实体再通过 TypeIndex 查槽位。
 
 #### `QueryRecord`
 
@@ -2241,6 +2334,7 @@ Query<Velocity, Position>
 archetype.Mask.ContainsAll(include)
 并且不与 exclude 相交
 计算 Offset1 / Offset2 / Offset3
+计算 Slot1 / Slot2 / Slot3
 写入 Matches
 ```
 
@@ -2251,6 +2345,12 @@ archetype.Mask.ContainsAll(include)
 根据组件类型编号获取该组件在当前 Archetype 的 Chunk 偏移。
 
 如果 Query 组件数量不足 3 个，多余 offset 使用 `ArchetypeLayout.MissingOffset`。
+
+#### `private static int GetSlot(...)`
+
+根据组件类型编号获取该组件在当前 Archetype 的 `Types` 槽位。
+
+如果 Query 组件数量不足 3 个，多余 slot 使用 `ArchetypeLayout.MissingOffset`。
 
 #### `private static bool SameComponentTypes(...)`
 
@@ -2283,8 +2383,10 @@ QueryId
 
 ```text
 ForEach
--> ForEachChunk
--> for i in count
+-> World.ForEach
+-> 遍历 QueryArchetypeMatch
+-> 使用缓存 Offset 定位组件数组
+-> 使用缓存 Slot 判断 enabled bit
 -> 调用用户 QueryAction
 ```
 
@@ -2302,8 +2404,10 @@ ForEach
 
 ```text
 ForEachReadOnly
--> ForEachChunkReadOnly
--> for i in count
+-> World.ForEachReadOnly
+-> 遍历 QueryArchetypeMatch
+-> 使用缓存 Offset 定位组件数组
+-> 使用缓存 Slot 判断 enabled bit
 -> 调用用户 ReadOnlyQueryAction
 ```
 
@@ -4793,7 +4897,7 @@ ChunkUtilization 大于 0
 
 ## 四、当前阶段总结
 
-当前已经实现到阶段 H 的 Advanced Optimization 第十二项：
+当前已经实现到阶段 H 的 Advanced Optimization 第十三项：
 
 ```text
 Component 类型身份
@@ -4837,6 +4941,7 @@ ReadOnly Query
 LastSystemVersion
 Enableable Component
 EnabledChunkAction
+Query slot 缓存
 ```
 
 还没有实现：
@@ -4912,8 +5017,11 @@ World.Query<T...>
 QueryCache.GetOrCreate
 刷新时匹配 Archetype
 同时计算 Offset1/Offset2/Offset3
+同时计算 Slot1/Slot2/Slot3
 ForEachChunk 直接使用缓存 offset
+逐实体 ForEach 直接使用缓存 slot 判断 enableable
 避免每次遍历重复 GetComponentOffset
+避免每个实体重复 GetTypeSlot
 ```
 
 CreateMany Chunk 批写链路：
@@ -5047,4 +5155,4 @@ World 找到 TEnabled 在 Archetype 中的 type slot
 用户在热循环里用 enabled.IsEnabled(slot) 跳过 disabled 行
 ```
 
-下一步建议继续阶段 H：做更细粒度的 Query 写权限声明，或优化 enableable 槽位缓存。前者能进一步减少 ChangeVersion 的保守误标，后者能减少 Query 每次判断 enabled 时的查表成本。
+下一步建议继续阶段 H：做更细粒度的 Query 写权限声明，或做 CommandBuffer 回放排序优化。前者能进一步减少 ChangeVersion 的保守误标，后者能降低大量结构变更回放时的随机迁移成本。

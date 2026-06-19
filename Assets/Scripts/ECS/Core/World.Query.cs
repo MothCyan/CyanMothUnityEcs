@@ -42,6 +42,381 @@ namespace CyanMothUnityEcs
             return new Query<T1, T2, T3>(this, queryId);
         }
 
+        internal void ForEach<T1>(int queryId, QueryAction<T1> action)
+            where T1 : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, t1);
+                }
+            }
+        }
+
+        internal void ForEachReadOnly<T1>(int queryId, ReadOnlyQueryAction<T1> action)
+            where T1 : unmanaged, IComponentData
+        {
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], in c1[i]);
+                    }
+                }
+            }
+        }
+
+        internal void ForEachChanged<T1, TChanged>(int queryId, int sinceVersion, QueryAction<T1> action)
+            where T1 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+            ComponentType t1 = TypeRegistry.Get<T1>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, t1);
+                }
+            }
+        }
+
+        internal void ForEachChangedReadOnly<T1, TChanged>(int queryId, int sinceVersion, ReadOnlyQueryAction<T1> action)
+            where T1 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], in c1[i]);
+                    }
+                }
+            }
+        }
+
+        internal void ForEach<T1, T2>(int queryId, QueryAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, t1);
+                    MarkComponentChanged(chunk, archetype, t2);
+                }
+            }
+        }
+
+        internal void ForEachReadOnly<T1, T2>(int queryId, ReadOnlyQueryAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+        {
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], in c1[i], in c2[i]);
+                    }
+                }
+            }
+        }
+
+        internal void ForEachChanged<T1, T2, TChanged>(int queryId, int sinceVersion, QueryAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, t1);
+                    MarkComponentChanged(chunk, archetype, t2);
+                }
+            }
+        }
+
+        internal void ForEachChangedReadOnly<T1, T2, TChanged>(int queryId, int sinceVersion, ReadOnlyQueryAction<T1, T2> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], in c1[i], in c2[i]);
+                    }
+                }
+            }
+        }
+
+        internal void ForEach<T1, T2, T3>(int queryId, QueryAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+        {
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType t3 = TypeRegistry.Get<T3>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    T3* c3 = (T3*)((byte*)chunk + match.Offset3);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, t1);
+                    MarkComponentChanged(chunk, archetype, t2);
+                    MarkComponentChanged(chunk, archetype, t3);
+                }
+            }
+        }
+
+        internal void ForEachReadOnly<T1, T2, T3>(int queryId, ReadOnlyQueryAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+        {
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0)
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    T3* c3 = (T3*)((byte*)chunk + match.Offset3);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], in c1[i], in c2[i], in c3[i]);
+                    }
+                }
+            }
+        }
+
+        internal void ForEachChanged<T1, T2, T3, TChanged>(int queryId, int sinceVersion, QueryAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+            ComponentType t1 = TypeRegistry.Get<T1>();
+            ComponentType t2 = TypeRegistry.Get<T2>();
+            ComponentType t3 = TypeRegistry.Get<T3>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    T3* c3 = (T3*)((byte*)chunk + match.Offset3);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
+                    }
+
+                    MarkComponentChanged(chunk, archetype, t1);
+                    MarkComponentChanged(chunk, archetype, t2);
+                    MarkComponentChanged(chunk, archetype, t3);
+                }
+            }
+        }
+
+        internal void ForEachChangedReadOnly<T1, T2, T3, TChanged>(int queryId, int sinceVersion, ReadOnlyQueryAction<T1, T2, T3> action)
+            where T1 : unmanaged, IComponentData
+            where T2 : unmanaged, IComponentData
+            where T3 : unmanaged, IComponentData
+            where TChanged : unmanaged, IComponentData
+        {
+            ComponentType changedType = TypeRegistry.Get<TChanged>();
+
+            foreach (QueryArchetypeMatch match in _queryCache.GetMatchingArchetypes(queryId))
+            {
+                Archetype archetype = _archetypes.GetById(match.ArchetypeId);
+
+                for (Chunk* chunk = archetype.FirstChunk; chunk != null; chunk = chunk->Next)
+                {
+                    if (chunk->Count == 0 || !ChunkChangedSince(chunk, archetype, changedType, sinceVersion))
+                        continue;
+
+                    Entity* entities = GetEntityArray(chunk, archetype);
+                    T1* c1 = (T1*)((byte*)chunk + match.Offset1);
+                    T2* c2 = (T2*)((byte*)chunk + match.Offset2);
+                    T3* c3 = (T3*)((byte*)chunk + match.Offset3);
+                    for (int i = 0; i < chunk->Count; i++)
+                    {
+                        if (!IsSlotEnabledForQuery(match, chunk, archetype, i))
+                            continue;
+
+                        action(entities[i], in c1[i], in c2[i], in c3[i]);
+                    }
+                }
+            }
+        }
+
         internal void ForEachChunk<T1>(int queryId, ChunkAction<T1> action)
             where T1 : unmanaged, IComponentData
         {
@@ -79,34 +454,13 @@ namespace CyanMothUnityEcs
                         continue;
 
                     action(
-                        GetEnabledChunk(chunk, archetype, enabledType),
+                        GetEnabledChunk(chunk, archetype, enabledType, GetEnabledSlot(enabledType, t1, match.Slot1)),
                         GetEntityArray(chunk, archetype),
                         (T1*)((byte*)chunk + match.Offset1),
                         chunk->Count);
                     MarkComponentChanged(chunk, archetype, t1);
                 }
             }
-        }
-
-        internal bool IsEntityEnabledForQuery<T1>(int queryId, Entity entity)
-            where T1 : unmanaged, IComponentData
-        {
-            return IsEntityEnabledForQuery(queryId, entity);
-        }
-
-        internal bool IsEntityEnabledForQuery<T1, T2>(int queryId, Entity entity)
-            where T1 : unmanaged, IComponentData
-            where T2 : unmanaged, IComponentData
-        {
-            return IsEntityEnabledForQuery(queryId, entity);
-        }
-
-        internal bool IsEntityEnabledForQuery<T1, T2, T3>(int queryId, Entity entity)
-            where T1 : unmanaged, IComponentData
-            where T2 : unmanaged, IComponentData
-            where T3 : unmanaged, IComponentData
-        {
-            return IsEntityEnabledForQuery(queryId, entity);
         }
 
         internal void ForEachChunkReadOnly<T1>(int queryId, ChunkAction<T1> action)
@@ -214,7 +568,7 @@ namespace CyanMothUnityEcs
                         continue;
 
                     action(
-                        GetEnabledChunk(chunk, archetype, enabledType),
+                        GetEnabledChunk(chunk, archetype, enabledType, GetEnabledSlot(enabledType, t1, match.Slot1, t2, match.Slot2)),
                         GetEntityArray(chunk, archetype),
                         (T1*)((byte*)chunk + match.Offset1),
                         (T2*)((byte*)chunk + match.Offset2),
@@ -353,7 +707,7 @@ namespace CyanMothUnityEcs
                         continue;
 
                     action(
-                        GetEnabledChunk(chunk, archetype, enabledType),
+                        GetEnabledChunk(chunk, archetype, enabledType, GetEnabledSlot(enabledType, t1, match.Slot1, t2, match.Slot2, t3, match.Slot3)),
                         GetEntityArray(chunk, archetype),
                         (T1*)((byte*)chunk + match.Offset1),
                         (T2*)((byte*)chunk + match.Offset2),
@@ -459,31 +813,58 @@ namespace CyanMothUnityEcs
             return changedSlot >= 0 && chunk->ChangeVersions[changedSlot] > sinceVersion;
         }
 
-        private bool IsEntityEnabledForQuery(int queryId, Entity entity)
+        private static bool IsSlotEnabledForQuery(QueryArchetypeMatch match, Chunk* chunk, Archetype archetype, int slot)
         {
-            Chunk* chunk = GetEntityChunk(entity, out int entitySlot, out Archetype archetype);
-
-            foreach (int typeIndex in _queryCache.GetComponentTypeIndices(queryId))
-            {
-                int typeSlot = archetype.GetTypeSlot(typeIndex);
-                if (typeSlot < 0)
-                    continue;
-
-                ComponentType type = archetype.Types[typeSlot];
-                if (!type.IsEnableable)
-                    continue;
-
-                byte* mask = GetEnabledMask(chunk, archetype, typeSlot);
-                if (mask != null && !GetEnabledBit(mask, entitySlot))
-                    return false;
-            }
-
-            return true;
+            return IsComponentSlotEnabled(match.Slot1, chunk, archetype, slot) &&
+                   IsComponentSlotEnabled(match.Slot2, chunk, archetype, slot) &&
+                   IsComponentSlotEnabled(match.Slot3, chunk, archetype, slot);
         }
 
-        private static EnabledChunk GetEnabledChunk(Chunk* chunk, Archetype archetype, ComponentType enabledType)
+        private static bool IsComponentSlotEnabled(int typeSlot, Chunk* chunk, Archetype archetype, int entitySlot)
         {
-            int typeSlot = archetype.GetTypeSlot(enabledType.Index);
+            if (typeSlot < 0)
+                return true;
+
+            ComponentType type = archetype.Types[typeSlot];
+            if (!type.IsEnableable)
+                return true;
+
+            byte* mask = GetEnabledMask(chunk, archetype, typeSlot);
+            return mask == null || GetEnabledBit(mask, entitySlot);
+        }
+
+        private static int GetEnabledSlot(ComponentType enabledType, ComponentType t1, int slot1)
+        {
+            if (enabledType.Index == t1.Index)
+                return slot1;
+
+            return ArchetypeLayout.MissingOffset;
+        }
+
+        private static int GetEnabledSlot(ComponentType enabledType, ComponentType t1, int slot1, ComponentType t2, int slot2)
+        {
+            if (enabledType.Index == t1.Index)
+                return slot1;
+            if (enabledType.Index == t2.Index)
+                return slot2;
+
+            return ArchetypeLayout.MissingOffset;
+        }
+
+        private static int GetEnabledSlot(ComponentType enabledType, ComponentType t1, int slot1, ComponentType t2, int slot2, ComponentType t3, int slot3)
+        {
+            if (enabledType.Index == t1.Index)
+                return slot1;
+            if (enabledType.Index == t2.Index)
+                return slot2;
+            if (enabledType.Index == t3.Index)
+                return slot3;
+
+            return ArchetypeLayout.MissingOffset;
+        }
+
+        private static EnabledChunk GetEnabledChunk(Chunk* chunk, Archetype archetype, ComponentType enabledType, int typeSlot)
+        {
             if (typeSlot < 0)
                 throw new InvalidOperationException($"Archetype {archetype.Id} does not contain component {enabledType.ManagedType.Name}.");
 

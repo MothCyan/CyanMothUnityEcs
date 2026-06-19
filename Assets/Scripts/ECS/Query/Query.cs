@@ -19,18 +19,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            ForEachChunk((Entity* entities, T1* c1, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], ref c1[i]);
-                }
-            });
+            _world.ForEach(_queryId, action);
         }
 
         public void ForEachReadOnly(ReadOnlyQueryAction<T1> action)
@@ -38,18 +27,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            world.ForEachChunkReadOnly<T1>(queryId, (Entity* entities, T1* c1, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], in c1[i]);
-                }
-            });
+            _world.ForEachReadOnly(_queryId, action);
         }
 
         public void ForEachChunk(ChunkAction<T1> action)
@@ -75,18 +53,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            ForEachChangedChunk<TChanged>(sinceVersion, (Entity* entities, T1* c1, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], ref c1[i]);
-                }
-            });
+            _world.ForEachChanged<T1, TChanged>(_queryId, sinceVersion, action);
         }
 
         public void ForEachChangedReadOnly<TChanged>(int sinceVersion, ReadOnlyQueryAction<T1> action)
@@ -95,18 +62,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            world.ForEachChangedChunkReadOnly<T1, TChanged>(queryId, sinceVersion, (Entity* entities, T1* c1, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], in c1[i]);
-                }
-            });
+            _world.ForEachChangedReadOnly<T1, TChanged>(_queryId, sinceVersion, action);
         }
 
         public void ForEachChangedChunk<TChanged>(int sinceVersion, ChunkAction<T1> action)
@@ -137,18 +93,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            ForEachChunk((Entity* entities, T1* c1, T2* c2, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], ref c1[i], ref c2[i]);
-                }
-            });
+            _world.ForEach(_queryId, action);
         }
 
         public void ForEachReadOnly(ReadOnlyQueryAction<T1, T2> action)
@@ -156,18 +101,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            world.ForEachChunkReadOnly<T1, T2>(queryId, (Entity* entities, T1* c1, T2* c2, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], in c1[i], in c2[i]);
-                }
-            });
+            _world.ForEachReadOnly(_queryId, action);
         }
 
         public void ForEachChunk(ChunkAction<T1, T2> action)
@@ -193,18 +127,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            ForEachChangedChunk<TChanged>(sinceVersion, (Entity* entities, T1* c1, T2* c2, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], ref c1[i], ref c2[i]);
-                }
-            });
+            _world.ForEachChanged<T1, T2, TChanged>(_queryId, sinceVersion, action);
         }
 
         public void ForEachChangedReadOnly<TChanged>(int sinceVersion, ReadOnlyQueryAction<T1, T2> action)
@@ -213,18 +136,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            world.ForEachChangedChunkReadOnly<T1, T2, TChanged>(queryId, sinceVersion, (Entity* entities, T1* c1, T2* c2, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], in c1[i], in c2[i]);
-                }
-            });
+            _world.ForEachChangedReadOnly<T1, T2, TChanged>(_queryId, sinceVersion, action);
         }
 
         public void ForEachChangedChunk<TChanged>(int sinceVersion, ChunkAction<T1, T2> action)
@@ -256,18 +168,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            ForEachChunk((Entity* entities, T1* c1, T2* c2, T3* c3, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2, T3>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
-                }
-            });
+            _world.ForEach(_queryId, action);
         }
 
         public void ForEachReadOnly(ReadOnlyQueryAction<T1, T2, T3> action)
@@ -275,18 +176,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            world.ForEachChunkReadOnly<T1, T2, T3>(queryId, (Entity* entities, T1* c1, T2* c2, T3* c3, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2, T3>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], in c1[i], in c2[i], in c3[i]);
-                }
-            });
+            _world.ForEachReadOnly(_queryId, action);
         }
 
         public void ForEachChunk(ChunkAction<T1, T2, T3> action)
@@ -312,18 +202,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            ForEachChangedChunk<TChanged>(sinceVersion, (Entity* entities, T1* c1, T2* c2, T3* c3, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2, T3>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], ref c1[i], ref c2[i], ref c3[i]);
-                }
-            });
+            _world.ForEachChanged<T1, T2, T3, TChanged>(_queryId, sinceVersion, action);
         }
 
         public void ForEachChangedReadOnly<TChanged>(int sinceVersion, ReadOnlyQueryAction<T1, T2, T3> action)
@@ -332,18 +211,7 @@ namespace CyanMothUnityEcs
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
-            World world = _world;
-            int queryId = _queryId;
-            world.ForEachChangedChunkReadOnly<T1, T2, T3, TChanged>(queryId, sinceVersion, (Entity* entities, T1* c1, T2* c2, T3* c3, int count) =>
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (!world.IsEntityEnabledForQuery<T1, T2, T3>(queryId, entities[i]))
-                        continue;
-
-                    action(entities[i], in c1[i], in c2[i], in c3[i]);
-                }
-            });
+            _world.ForEachChangedReadOnly<T1, T2, T3, TChanged>(_queryId, sinceVersion, action);
         }
 
         public void ForEachChangedChunk<TChanged>(int sinceVersion, ChunkAction<T1, T2, T3> action)
