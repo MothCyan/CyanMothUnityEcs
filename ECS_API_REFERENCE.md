@@ -3257,6 +3257,32 @@ public struct Position2D : IComponentData
 
 创建 2D 位置数据。
 
+### `Velocity2D`
+
+2D 速度组件。
+
+```csharp
+public struct Velocity2D : IComponentData
+```
+
+它也是纯 ECS 数据，可以进入 Chunk。`Position2DMoveSystem` 会读取它，并把速度积分到 `Position2D` 上。
+
+### 字段
+
+#### `public float X`
+
+横向速度。
+
+#### `public float Y`
+
+纵向速度。
+
+### 构造函数
+
+#### `Velocity2D(float x, float y)`
+
+创建 2D 速度数据。
+
 ---
 
 ## `Assets/Scripts/ECS/Unity/TransformProxy.cs`
@@ -3450,6 +3476,48 @@ Clear / Dispose
 
 ## `Assets/Scripts/ECS/Unity/TransformSyncSystem.cs`
 
+### `Position2DMoveSystem`
+
+2D 位置运动系统。
+
+```csharp
+public sealed class Position2DMoveSystem : EcsSystem
+```
+
+它查询：
+
+```text
+Position2D
+Velocity2D
+```
+
+然后每帧执行：
+
+```text
+Position2D.X += Velocity2D.X * deltaTime
+Position2D.Y += Velocity2D.Y * deltaTime
+```
+
+它不访问 Transform、SpriteRenderer 或任何 UnityEngine.Object。这样运动计算仍然留在 ECS 的连续内存里，Unity 对象同步放到后面的 Bridge 系统处理。
+
+#### `private Query<Position2D, Velocity2D> _query`
+
+缓存的查询句柄。
+
+#### `protected override void OnCreate()`
+
+缓存 Query：
+
+```text
+World.Query<Position2D, Velocity2D>()
+```
+
+#### `protected override void OnUpdate(float deltaTime)`
+
+使用 `ForEachWrite<Position2D>` 遍历实体，只声明 `Position2D` 被写入。
+
+这样 ChangeVersion 只会刷新 `Position2D`，不会把只读的 `Velocity2D` 也标记成变化。
+
 ### `TransformSyncSystem`
 
 把 ECS 位置同步到 Unity Transform 的系统。
@@ -3552,6 +3620,7 @@ public sealed class Position2DAuthoring : MonoBehaviour
 ```text
 读取 Transform.position 或手动 initialPosition
 创建 Position2D 组件
+如果配置了初始速度，再添加 Velocity2D 组件
 可选注册 TransformBridge
 可选注册 SpriteRendererBridge
 如果启用 Transform 同步，再创建 TransformProxy
@@ -3577,9 +3646,21 @@ public sealed class Position2DAuthoring : MonoBehaviour
 
 是否在 GameObject 带有 `SpriteRenderer` 时创建 `SpriteRendererProxy` 和 `SpriteRenderState`。
 
+#### `addVelocity`
+
+是否给 Entity 添加 `Velocity2D`。
+
+#### `initialVelocity`
+
+手动指定的初始速度。
+
 #### `Entity`
 
 该 Authoring 创建出的 ECS Entity。
+
+#### `InitialVelocity`
+
+设置初始速度。给这个属性赋值时，Authoring 会自动打开 `addVelocity`，创建 Entity 时会额外添加 `Velocity2D`。
 
 #### `CreateEntity(World world, TransformBridge transformBridge)`
 
@@ -3606,6 +3687,12 @@ OnDestroy -> Shutdown
 ```
 
 ### 字段
+
+#### `private bool addPosition2DMoveSystem`
+
+是否默认加入 `Position2DMoveSystem`。
+
+当前默认开启，让挂了 `Position2DAuthoring` 并配置速度的对象开箱即可移动。
 
 #### `private bool addTransformSyncSystem`
 
@@ -3714,6 +3801,8 @@ AuthoredEntityCount 归零
 默认行为：
 
 ```text
+如果 addPosition2DMoveSystem 为 true
+加入 Position2DMoveSystem
 如果 addTransformSyncSystem 为 true
 加入 TransformSyncSystem
 如果 addSpriteRendererSyncSystem 为 true
@@ -5217,6 +5306,8 @@ CommandBuffer / Playback
 QueryCache / Query / ForEachChunk
 EcsSystem / SystemPipeline
 Position2D
+Velocity2D
+Position2DMoveSystem
 Position2DAuthoring
 TransformProxy
 TransformBridge
@@ -5283,6 +5374,7 @@ Unity Bridge 链路：
 ```text
 Unity EcsRunner 初始化 World/Pipeline
 Position2DAuthoring 转换为 Entity
+Position2DMoveSystem 读取 Velocity2D 并更新 Position2D
 TransformBridge 注册 Transform
 SpriteRendererBridge 注册 SpriteRenderer
 ECS Entity 持有 Position2D + TransformProxy + SpriteRendererProxy + SpriteRenderState
@@ -5310,6 +5402,19 @@ World.Create(Position2D)
   -> 给 Entity 写入 SpriteRendererProxy + SpriteRenderState
 后续 TransformSyncSystem 把 ECS Position2D 写回 Unity Transform
 后续 SpriteRendererSyncSystem 把 ECS SpriteRenderState 写回 Unity SpriteRenderer
+```
+
+轻量 Demo 运动链路：
+
+```text
+用户在 GameObject 上挂 Position2DAuthoring
+设置 InitialVelocity
+EcsRunner.Initialize 创建 Entity
+Entity 持有 Position2D + Velocity2D + TransformProxy
+EcsRunner.Tick(deltaTime)
+Position2DMoveSystem 更新 Position2D
+TransformSyncSystem 把 Position2D 写回 Transform
+GameObject 在场景中移动
 ```
 
 Debug & Benchmark 链路：

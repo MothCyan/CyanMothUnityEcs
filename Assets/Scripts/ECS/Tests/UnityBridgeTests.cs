@@ -140,6 +140,23 @@ namespace CyanMothUnityEcs.Tests
         }
 
         [Test]
+        public void Position2DMoveSystem_UpdatesPosition()
+        {
+            using (World world = new World())
+            using (SystemPipeline pipeline = new SystemPipeline(world))
+            {
+                Entity entity = world.Create(new Position2D(1, 2), new Velocity2D(3, 4));
+                pipeline.Add(new Position2DMoveSystem());
+
+                pipeline.Update(0.5f);
+
+                Position2D position = world.Get<Position2D>(entity);
+                Assert.AreEqual(2.5f, position.X);
+                Assert.AreEqual(4f, position.Y);
+            }
+        }
+
+        [Test]
         public void EcsRunner_InitializeAndShutdown_ManagesWorld()
         {
             GameObject gameObject = new GameObject("runner-test");
@@ -186,6 +203,35 @@ namespace CyanMothUnityEcs.Tests
                 Assert.AreEqual(5, runner.World.Get<Position2D>(authoring.Entity).X);
                 Assert.AreEqual(6, runner.World.Get<Position2D>(authoring.Entity).Y);
                 Assert.IsTrue(runner.World.Has<TransformProxy>(authoring.Entity));
+            }
+            finally
+            {
+                Object.DestroyImmediate(runnerObject);
+                Object.DestroyImmediate(authoredObject);
+            }
+        }
+
+        [Test]
+        public void EcsRunner_AuthoringVelocityMovesTransform()
+        {
+            GameObject runnerObject = new GameObject("runner-authoring-velocity-test");
+            GameObject authoredObject = new GameObject("position-authoring-velocity-test");
+            try
+            {
+                authoredObject.transform.position = new Vector3(1, 2, 7);
+                Position2DAuthoring authoring = authoredObject.AddComponent<Position2DAuthoring>();
+                authoring.InitialVelocity = new Vector2(2, 3);
+                EcsRunner runner = runnerObject.AddComponent<EcsRunner>();
+
+                runner.Initialize();
+                runner.Tick(0.5f);
+
+                Position2D position = runner.World.Get<Position2D>(authoring.Entity);
+                Assert.AreEqual(2f, position.X);
+                Assert.AreEqual(3.5f, position.Y);
+                Assert.AreEqual(2f, authoredObject.transform.position.x);
+                Assert.AreEqual(3.5f, authoredObject.transform.position.y);
+                Assert.AreEqual(7f, authoredObject.transform.position.z);
             }
             finally
             {

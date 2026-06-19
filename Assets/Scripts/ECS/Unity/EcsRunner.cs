@@ -9,6 +9,9 @@ namespace CyanMothUnityEcs
     public class EcsRunner : MonoBehaviour
     {
         [SerializeField]
+        private bool addPosition2DMoveSystem = true;
+
+        [SerializeField]
         private bool addTransformSyncSystem = true;
 
         [SerializeField]
@@ -104,6 +107,8 @@ namespace CyanMothUnityEcs
         /// </summary>
         protected virtual void Configure(SystemPipeline pipeline, World world, TransformBridge transformBridge, SpriteRendererBridge spriteRendererBridge)
         {
+            if (addPosition2DMoveSystem)
+                pipeline.Add(new Position2DMoveSystem());
             if (addTransformSyncSystem)
                 pipeline.Add(new TransformSyncSystem(transformBridge));
             if (addSpriteRendererSyncSystem)

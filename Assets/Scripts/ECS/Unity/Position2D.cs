@@ -19,6 +19,22 @@ namespace CyanMothUnityEcs
     }
 
     /// <summary>
+    /// 2D 速度组件。
+    /// 它只保存纯数值，Movement 系统会用它推进 Position2D。
+    /// </summary>
+    public struct Velocity2D : IComponentData
+    {
+        public float X;
+        public float Y;
+
+        public Velocity2D(float x, float y)
+        {
+            X = x;
+            Y = y;
+        }
+    }
+
+    /// <summary>
     /// 轻量 Authoring 组件：把场景里的 GameObject 转成 ECS 的 Position2D 实体。
     /// 它运行时直接创建 Entity，不经过 Baker，也不依赖 SubScene。
     /// </summary>
@@ -35,6 +51,12 @@ namespace CyanMothUnityEcs
 
         [SerializeField]
         private bool syncSpriteRenderer = true;
+
+        [SerializeField]
+        private bool addVelocity;
+
+        [SerializeField]
+        private Vector2 initialVelocity;
 
         public Entity Entity { get; private set; }
         public bool HasEntity => !Entity.IsNull;
@@ -59,6 +81,16 @@ namespace CyanMothUnityEcs
         {
             get => syncSpriteRenderer;
             set => syncSpriteRenderer = value;
+        }
+
+        public Vector2 InitialVelocity
+        {
+            get => initialVelocity;
+            set
+            {
+                initialVelocity = value;
+                addVelocity = true;
+            }
         }
 
         internal Entity CreateEntity(World world, TransformBridge transformBridge, SpriteRendererBridge spriteRendererBridge = null)
@@ -100,6 +132,9 @@ namespace CyanMothUnityEcs
             {
                 Entity = world.Create(positionComponent);
             }
+
+            if (addVelocity)
+                world.Add(Entity, new Velocity2D(initialVelocity.x, initialVelocity.y));
 
             return Entity;
         }
