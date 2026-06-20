@@ -12,6 +12,7 @@
 ../README.md
 ECS_SCRIPT_OVERVIEW.md
 ECS_LEARNING_PATH.md
+ECS_CONCEPTS_AND_PRINCIPLES.md
 ECS_DESIGN.md
 ECS_SCRIPT_DETAILS.md
 ECS_API_REFERENCE.md
@@ -23,6 +24,7 @@ ECS_API_REFERENCE.md
 README 先告诉你项目是什么
 脚本速览先建立地图
 学习路线帮你按难度理解
+概念原理文档帮你把底层机制讲通
 设计文档解释为什么这样做
 脚本详细说明解释每个文件怎么分工
 API 手册用于查字段和方法
@@ -41,6 +43,7 @@ API 手册用于查字段和方法
 | [ECS_DESIGN.md](ECS_DESIGN.md) | 主设计文档 | 理解整体架构、优化方案、和 Unity ECS 的区别 |
 | [ECS_IMPLEMENTATION_ROADMAP.md](ECS_IMPLEMENTATION_ROADMAP.md) | 实现路线图 | 想知道从哪里开始、按什么顺序实现 |
 | [ECS_LEARNING_PATH.md](ECS_LEARNING_PATH.md) | 学习路线 | 想从易到难掌握 ECS 脉络 |
+| [ECS_CONCEPTS_AND_PRINCIPLES.md](ECS_CONCEPTS_AND_PRINCIPLES.md) | 概念原理讲义 | 想把 Entity、Archetype、Chunk、Query、CommandBuffer、Bridge 的原理串起来 |
 | [ECS_TERMS.md](ECS_TERMS.md) | 专业名词手册 | 遇到陌生概念时查解释 |
 | [ECS_USAGE_LAYERED_FLOW.md](ECS_USAGE_LAYERED_FLOW.md) | 使用链路下钻 | 想从“怎么用”一路看到“底层怎么跑” |
 | [ECS_ARCHITECTURE_RELATIONSHIP.md](ECS_ARCHITECTURE_RELATIONSHIP.md) | 模块关系图谱 | 想理解内存层、存储层、查询层、应用层的关系 |
@@ -73,6 +76,7 @@ ECS_SCRIPT_OVERVIEW.md
 
 ```text
 ECS_LEARNING_PATH.md
+ECS_CONCEPTS_AND_PRINCIPLES.md
 ECS_TERMS.md
 ```
 
@@ -81,6 +85,7 @@ ECS_TERMS.md
 ```text
 Entity / Component / System 是什么
 Archetype / Chunk / SoA 是什么
+EntityStore / Query / CommandBuffer 如何协作
 为什么 Entity 不直接存组件
 为什么 Query 不逐实体 Has
 ```

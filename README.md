@@ -59,6 +59,7 @@ EcsDebugOverlay 显示 World 统计
 - [Docs/ECS_SCRIPT_DETAILS.md](Docs/ECS_SCRIPT_DETAILS.md)：所有脚本详细说明。
 - [Docs/ECS_API_REFERENCE.md](Docs/ECS_API_REFERENCE.md)：类、字段、属性、API 的逐项说明。
 - [Docs/ECS_LEARNING_PATH.md](Docs/ECS_LEARNING_PATH.md)：从易到难的学习路线。
+- [Docs/ECS_CONCEPTS_AND_PRINCIPLES.md](Docs/ECS_CONCEPTS_AND_PRINCIPLES.md)：概念与原理学习讲义，把核心机制串成完整理解链路。
 - [Docs/ECS_DESIGN.md](Docs/ECS_DESIGN.md)：整体设计、优化链路和创新方案。
 
 专项文档：
